@@ -119,7 +119,7 @@ const App: React.FC = () => {
             stopPolling(); // Clear any existing interval before setting a new one
             syncIntervalRef.current = window.setInterval(() => {
                 fetchDraftPicks(draftId);
-            }, 15000); // Poll every 15 seconds
+            }, 5000); // Poll every 5 seconds
         } else {
             stopPolling();
         }
@@ -149,6 +149,25 @@ const App: React.FC = () => {
             fetchDraftPicks(draftId);
         }
     }, [draftId, fetchDraftPicks]);
+
+    const handleRemoveSync = useCallback(() => {
+        if (syncIntervalRef.current) {
+            clearInterval(syncIntervalRef.current);
+            syncIntervalRef.current = null;
+        }
+        setDraftId(null);
+        setSyncStatus('idle');
+        setLastSyncTime(null);
+        setSyncError(null);
+        
+        // Reset drafted status for all players
+        setPlayers(currentPlayers => 
+            currentPlayers.map(player => ({
+                ...player,
+                isDrafted: false
+            }))
+        );
+    }, []);
 
     const handleToggleTag = (tag: string) => {
         setVisibleTags(prevVisibleTags => {
@@ -286,6 +305,7 @@ const App: React.FC = () => {
                 onStartSync={handleStartSync}
                 onTogglePause={handleTogglePauseSync}
                 onForceRefresh={handleForceRefresh}
+                onRemoveSync={handleRemoveSync}
             />
 
             <main className="container mx-auto p-4 flex-1 min-h-0">

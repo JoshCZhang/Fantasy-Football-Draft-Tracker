@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CloseIcon, PlayIcon, PauseIcon, RefreshIcon } from './Icons';
+import { CloseIcon, PlayIcon, PauseIcon, RefreshIcon, TrashIcon } from './Icons';
 
 type SyncStatus = 'idle' | 'syncing' | 'active' | 'paused' | 'error';
 
@@ -12,9 +12,10 @@ interface SyncModalProps {
     onStartSync: (url: string) => void;
     onTogglePause: () => void;
     onForceRefresh: () => void;
+    onRemoveSync: () => void;
 }
 
-const SyncModal: React.FC<SyncModalProps> = ({ isOpen, status, error, lastSyncTime, onClose, onStartSync, onTogglePause, onForceRefresh }) => {
+const SyncModal: React.FC<SyncModalProps> = ({ isOpen, status, error, lastSyncTime, onClose, onStartSync, onTogglePause, onForceRefresh, onRemoveSync }) => {
     const [url, setUrl] = useState('');
 
     if (!isOpen) return null;
@@ -109,6 +110,13 @@ const SyncModal: React.FC<SyncModalProps> = ({ isOpen, status, error, lastSyncTi
                                     title="Force Refresh"
                                 >
                                     <RefreshIcon />
+                                </button>
+                                <button
+                                    onClick={onRemoveSync}
+                                    className="p-2 bg-gray-700 text-red-400 rounded-full hover:bg-gray-600 transition-colors"
+                                    title="Remove Sync and Reset Board"
+                                >
+                                    <TrashIcon />
                                 </button>
                             </div>
                         )}
