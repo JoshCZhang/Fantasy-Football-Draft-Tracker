@@ -4,11 +4,8 @@ import Header from './components/Header';
 import PlayerRow from './components/PlayerRow';
 import PlayerAnalysisModal from './components/PlayerAnalysisModal';
 import { getPlayerAnalysis } from './services/geminiService';
-import SyncModal from './components/SyncModal';
 
 const ALL_TAGS = ['My Man', 'Breakout', 'Bust', 'Sleeper', 'Value', 'Injury Prone', 'Rookie'];
-
-type SyncStatus = 'idle' | 'syncing' | 'active' | 'error';
 
 // Helper function to normalize the messy data from the Sleeper API
 const normalizeSleeperData = (data: any): Player[] => {
@@ -50,13 +47,6 @@ const App: React.FC = () => {
     const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
     const [analysis, setAnalysis] = useState<string>('');
     const [isAnalysisLoading, setIsAnalysisLoading] = useState<boolean>(false);
-
-    // State for Sync Modal
-    const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
-    const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
-    const [syncError, setSyncError] = useState<string | null>(null);
-    const wsRef = useRef<WebSocket | null>(null);
-    const intentionalCloseRef = useRef(false);
 
     const fetchPlayers = useCallback(async () => {
         setIsLoading(true);
@@ -175,105 +165,6 @@ const App: React.FC = () => {
         handleDragEnd(new Event('dragend') as any);
     };
 
-    // --- SYNC LOGIC ---
-
-    const handleStartSync = async (draftIdentifier: string) => {
-        if (wsRef.current) {
-            handleStopSync(); // Ensure any existing connection is closed first
-        }
-        
-        setSyncStatus('syncing');
-        setSyncError(null);
-        intentionalCloseRef.current = false;
-
-        const draftIdMatch = draftIdentifier.match(/\d{18,}/);
-        const draftId = draftIdMatch ? draftIdMatch[0] : draftIdentifier.trim();
-
-        if (!/^\d+$/.test(draftId)) {
-            setSyncError("Invalid Draft URL or ID. Please check and try again.");
-            setSyncStatus('error');
-            return;
-        }
-
-        try {
-            const picksResponse = await fetch(`https://api.sleeper.app/v1/draft/${draftId}/picks`);
-            if (!picksResponse.ok) {
-                 if (picksResponse.status === 404) {
-                    console.log("Draft has not started yet (no picks found). Connecting to WebSocket...");
-                 } else {
-                    throw new Error(`Failed to fetch draft data (Status: ${picksResponse.status})`);
-                 }
-            }
-
-            if (picksResponse.ok) {
-                const picks = await picksResponse.json();
-                const draftedPlayerIds = new Set(picks.map((p: any) => parseInt(p.player_id, 10)));
-                
-                setPlayers(current =>
-                    current.map(p => ({
-                        ...p,
-                        isDrafted: draftedPlayerIds.has(p.id)
-                    }))
-                );
-            }
-
-            wsRef.current = new WebSocket('wss://ws.sleeper.app');
-
-            wsRef.current.onopen = () => {
-                console.log('WebSocket connection established.');
-            };
-
-            wsRef.current.onmessage = (event) => {
-                const message = JSON.parse(event.data);
-                
-                if (message.type === 'connected') {
-                     console.log('Successfully connected to WebSocket, subscribing to draft...');
-                     const subscribeMessage = JSON.stringify({
-                        type: 'subscribe',
-                        channel: 'draft',
-                        payload: { draft_id: draftId },
-                    });
-                    wsRef.current?.send(subscribeMessage);
-                    setSyncStatus('active');
-                }
-
-                if (message.type === 'draft' && message.data.type === 'pick') {
-                    if (syncStatus !== 'active') {
-                        setSyncStatus('active'); // Set active on first pick message if not already set
-                    }
-                    const pickedPlayerId = parseInt(message.data.payload.player_id, 10);
-                    setPlayers(current =>
-                        current.map(p =>
-                            p.id === pickedPlayerId ? { ...p, isDrafted: true } : p
-                        )
-                    );
-                }
-            };
-            
-            wsRef.current.onclose = () => {
-                console.log('WebSocket connection closed.');
-                if (!intentionalCloseRef.current) {
-                    setSyncError("Connection failed. Please check the URL/ID and try again.");
-                    setSyncStatus('error');
-                }
-                wsRef.current = null;
-            };
-
-        } catch (error: any) {
-            console.error("Error syncing draft:", error);
-            setSyncError(error.message || "An unknown error occurred during sync setup.");
-            setSyncStatus('error');
-        }
-    };
-
-    const handleStopSync = () => {
-        intentionalCloseRef.current = true;
-        wsRef.current?.close();
-        setSyncStatus('idle');
-        setSyncError(null);
-    };
-
-
     const displayPlayers = players
         .filter(p =>
             p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -305,7 +196,6 @@ const App: React.FC = () => {
                 allTags={ALL_TAGS}
                 visibleTags={visibleTags}
                 onToggleTagVisibility={handleToggleTagVisibility}
-                onOpenSyncModal={() => setIsSyncModalOpen(true)}
             />
             
             <PlayerAnalysisModal
@@ -313,15 +203,6 @@ const App: React.FC = () => {
                 analysis={analysis}
                 isLoading={isAnalysisLoading}
                 onClose={handleCloseAnalysisModal}
-            />
-
-            <SyncModal 
-                isOpen={isSyncModalOpen}
-                onClose={() => setIsSyncModalOpen(false)}
-                onStartSync={handleStartSync}
-                onStopSync={handleStopSync}
-                syncStatus={syncStatus}
-                errorMessage={syncError}
             />
 
             <main className="container mx-auto p-4 flex-1 min-h-0">

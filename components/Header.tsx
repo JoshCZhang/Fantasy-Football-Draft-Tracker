@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Position } from '../types';
-import { SearchIcon, ChevronDownIcon, SyncIcon } from './Icons';
+import { SearchIcon, ChevronDownIcon } from './Icons';
 
 interface HeaderProps {
     searchTerm: string;
@@ -10,14 +10,13 @@ interface HeaderProps {
     allTags: string[];
     visibleTags: string[];
     onToggleTagVisibility: (tag: string) => void;
-    onOpenSyncModal: () => void;
 }
 
 const positionFilters: Position[] = [Position.ALL, Position.QB, Position.RB, Position.WR, Position.TE, Position.K, Position.DST];
 
 const Header: React.FC<HeaderProps> = ({ 
     searchTerm, setSearchTerm, positionFilter, setPositionFilter, 
-    allTags, visibleTags, onToggleTagVisibility, onOpenSyncModal
+    allTags, visibleTags, onToggleTagVisibility
 }) => {
     const [isTagsDropdownOpen, setIsTagsDropdownOpen] = useState(false);
 
@@ -82,15 +81,6 @@ const Header: React.FC<HeaderProps> = ({
                             </div>
                         )}
                     </div>
-                    
-                    {/* Sync Draft Button */}
-                    <button
-                        onClick={onOpenSyncModal}
-                        className="px-3 py-2 bg-indigo-600 text-white rounded-md flex items-center gap-2 hover:bg-indigo-700 transition-colors"
-                    >
-                        <SyncIcon />
-                        <span className="text-sm font-semibold">Sync Draft</span>
-                    </button>
                 </div>
             </div>
         </header>
