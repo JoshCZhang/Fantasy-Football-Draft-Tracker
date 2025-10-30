@@ -1,17 +1,13 @@
 
 import React, { useState } from 'react';
 import { Position } from '../types';
-import { SearchIcon, RefreshIcon, PlayIcon, PauseIcon, ChevronDownIcon } from './Icons';
+import { SearchIcon, ChevronDownIcon } from './Icons';
 
 interface HeaderProps {
     searchTerm: string;
     setSearchTerm: (term: string) => void;
     positionFilter: Position;
     setPositionFilter: (position: Position) => void;
-    isDrafting: boolean;
-    onStart: () => void;
-    onPause: () => void;
-    onReset: () => void;
     allTags: string[];
     visibleTags: string[];
     onToggleTag: (tag: string) => void;
@@ -21,7 +17,6 @@ const positionFilters: Position[] = [Position.ALL, Position.QB, Position.RB, Pos
 
 const Header: React.FC<HeaderProps> = ({ 
     searchTerm, setSearchTerm, positionFilter, setPositionFilter, 
-    isDrafting, onStart, onPause, onReset,
     allTags, visibleTags, onToggleTag
 }) => {
     const [isTagsDropdownOpen, setIsTagsDropdownOpen] = useState(false);
@@ -69,7 +64,7 @@ const Header: React.FC<HeaderProps> = ({
                             <ChevronDownIcon />
                         </button>
                         {isTagsDropdownOpen && (
-                            <div className="absolute top-full mt-2 w-48 bg-gray-800 border border-gray-600 rounded-md shadow-lg z-50">
+                            <div className="absolute top-full right-0 mt-2 w-48 bg-gray-800 border border-gray-600 rounded-md shadow-lg z-50">
                                 {allTags.map(tag => (
                                     <label key={tag} className="flex items-center px-4 py-2 text-sm text-white hover:bg-gray-700 cursor-pointer">
                                         <input
@@ -83,27 +78,6 @@ const Header: React.FC<HeaderProps> = ({
                                 ))}
                             </div>
                         )}
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                        {!isDrafting ? (
-                            <button onClick={onStart} className="px-3 py-2 bg-green-600 text-white rounded-md flex items-center gap-2 hover:bg-green-700 transition-colors">
-                                <PlayIcon />
-                                <span className="text-sm font-semibold">Start</span>
-                            </button>
-                        ) : (
-                            <button onClick={onPause} className="px-3 py-2 bg-yellow-500 text-white rounded-md flex items-center gap-2 hover:bg-yellow-600 transition-colors">
-                                <PauseIcon />
-                                <span className="text-sm font-semibold">Pause</span>
-                            </button>
-                        )}
-                        <button
-                            onClick={onReset}
-                            title="Reset Draft"
-                            className="p-2.5 bg-gray-700 text-gray-300 hover:bg-red-600 hover:text-white rounded-md transition-colors"
-                        >
-                            <RefreshIcon />
-                        </button>
                     </div>
                 </div>
             </div>

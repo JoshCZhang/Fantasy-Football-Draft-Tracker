@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Player, Position } from './types';
 import Header from './components/Header';
 import PlayerRow from './components/PlayerRow';
@@ -39,11 +40,8 @@ const App: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [positionFilter, setPositionFilter] = useState<Position>(Position.ALL);
-    const [isDrafting, setIsDrafting] = useState<boolean>(false);
     const [visibleTags, setVisibleTags] = useState<string[]>([]);
     
-    const initialPlayersRef = useRef<Player[]>([]);
-
     // Drag and Drop State
     const [draggedPlayerId, setDraggedPlayerId] = useState<number | null>(null);
     const [dragOverPlayerId, setDragOverPlayerId] = useState<number | null>(null);
@@ -58,7 +56,6 @@ const App: React.FC = () => {
                 const data = await response.json();
                 const normalizedPlayers = normalizeSleeperData(data);
                 setPlayers(normalizedPlayers);
-                initialPlayersRef.current = JSON.parse(JSON.stringify(normalizedPlayers));
             } catch (e) {
                 console.error("Error fetching player data:", e);
                 setError("Failed to fetch player data. Please try refreshing the page.");
@@ -68,40 +65,6 @@ const App: React.FC = () => {
         };
 
         fetchPlayers();
-    }, []);
-    
-    useEffect(() => {
-        if (!isDrafting) {
-            return;
-        }
-
-        const draftInterval = setInterval(() => {
-            setPlayers(prevPlayers => {
-                const availablePlayers = prevPlayers
-                    .filter(p => !p.isDrafted)
-                    .sort((a, b) => a.rank - b.rank);
-
-                if (availablePlayers.length === 0) {
-                    setIsDrafting(false); 
-                    return prevPlayers;
-                }
-
-                const playerToDraft = availablePlayers[0];
-                return prevPlayers.map(p =>
-                    p.id === playerToDraft.id ? { ...p, isDrafted: true } : p
-                );
-            });
-        }, 2000);
-
-        return () => clearInterval(draftInterval);
-    }, [isDrafting]);
-
-    const handleResetDraft = useCallback(() => {
-        setIsDrafting(false);
-        setPlayers(JSON.parse(JSON.stringify(initialPlayersRef.current)));
-        setSearchTerm('');
-        setPositionFilter(Position.ALL);
-        setVisibleTags([]);
     }, []);
     
     const handleToggleTag = (tag: string) => {
@@ -130,14 +93,27 @@ const App: React.FC = () => {
         );
     }, []);
 
+    const handleToggleDraftStatus = useCallback((playerId: number) => {
+        setPlayers(currentPlayers =>
+            currentPlayers.map(p =>
+                p.id === playerId ? { ...p, isDrafted: !p.isDrafted } : p
+            )
+        );
+    }, []);
+
+
     const handleDragStart = (e: React.DragEvent, playerId: number) => {
-        setDraggedPlayerId(playerId);
-        e.dataTransfer.effectAllowed = 'move';
+        const player = players.find(p => p.id === playerId);
+        if (player && !player.isDrafted) {
+            setDraggedPlayerId(playerId);
+            e.dataTransfer.effectAllowed = 'move';
+        }
     };
 
     const handleDragEnter = (e: React.DragEvent, targetPlayerId: number) => {
         e.preventDefault();
-        if (draggedPlayerId !== targetPlayerId) {
+        const targetPlayer = players.find(p => p.id === targetPlayerId);
+        if (draggedPlayerId !== targetPlayerId && targetPlayer && !targetPlayer.isDrafted) {
             setDragOverPlayerId(targetPlayerId);
         }
     };
@@ -155,20 +131,27 @@ const App: React.FC = () => {
 
         setPlayers(currentPlayers => {
             const draggedPlayer = currentPlayers.find(p => p.id === draggedPlayerId);
-            if (!draggedPlayer) return currentPlayers;
+            const dropTarget = currentPlayers.find(p => p.id === dragOverPlayerId);
 
-            const filteredPlayers = currentPlayers.filter(p => p.id !== draggedPlayerId);
-            const dropIndex = filteredPlayers.findIndex(p => p.id === dragOverPlayerId);
+            // Can only drag undrafted players and drop on undrafted players
+            if (!draggedPlayer || draggedPlayer.isDrafted || !dropTarget || dropTarget.isDrafted) {
+                return currentPlayers;
+            }
 
-            const newPlayersList = [
-                ...filteredPlayers.slice(0, dropIndex),
-                draggedPlayer,
-                ...filteredPlayers.slice(dropIndex)
-            ];
+            const undraftedPlayers = currentPlayers.filter(p => !p.isDrafted);
+            const draftedPlayers = currentPlayers.filter(p => p.isDrafted);
+            
+            const draggedIdx = undraftedPlayers.findIndex(p => p.id === draggedPlayerId);
+            const targetIdx = undraftedPlayers.findIndex(p => p.id === dragOverPlayerId);
 
-            const rerankedPlayers = newPlayersList.map((p, index) => ({ ...p, rank: index + 1 }));
-            initialPlayersRef.current = JSON.parse(JSON.stringify(rerankedPlayers)); // Update ref on manual re-rank
-            return rerankedPlayers;
+            if (draggedIdx === -1 || targetIdx === -1) return currentPlayers;
+
+            const [removed] = undraftedPlayers.splice(draggedIdx, 1);
+            undraftedPlayers.splice(targetIdx, 0, removed);
+
+            const rerankedUndrafted = undraftedPlayers.map((p, index) => ({ ...p, rank: index + 1 }));
+
+            return [...rerankedUndrafted, ...draftedPlayers];
         });
         
         handleDragEnd(new Event('dragend') as any);
@@ -183,7 +166,12 @@ const App: React.FC = () => {
             )
             .filter(p => positionFilter === Position.ALL || p.position === positionFilter);
         
-        return filtered.sort((a, b) => a.rank - b.rank);
+        return filtered.sort((a, b) => {
+            if (a.isDrafted !== b.isDrafted) {
+                return a.isDrafted ? 1 : -1;
+            }
+            return a.rank - b.rank;
+        });
     }, [players, searchTerm, positionFilter]);
 
     const tagColumnWidths: { [key: string]: { class: string, pixels: number } } = {
@@ -207,10 +195,6 @@ const App: React.FC = () => {
                 setSearchTerm={setSearchTerm}
                 positionFilter={positionFilter}
                 setPositionFilter={setPositionFilter}
-                isDrafting={isDrafting}
-                onStart={() => setIsDrafting(true)}
-                onPause={() => setIsDrafting(false)}
-                onReset={handleResetDraft}
                 allTags={ALL_TAGS}
                 visibleTags={visibleTags}
                 onToggleTag={handleToggleTag}
@@ -252,7 +236,7 @@ const App: React.FC = () => {
                                     player={player}
                                     visibleTags={visibleTags}
                                     onTogglePlayerTag={handleTogglePlayerTag}
-                                    isDrafting={isDrafting}
+                                    onToggleDraftStatus={handleToggleDraftStatus}
                                     isDragging={draggedPlayerId === player.id}
                                     isDragOver={dragOverPlayerId === player.id}
                                     onDragStart={handleDragStart}

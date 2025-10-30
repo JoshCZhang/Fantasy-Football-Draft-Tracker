@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Player } from '../types';
 import { 
@@ -16,9 +17,9 @@ interface PlayerRowProps {
     player: Player;
     visibleTags: string[];
     onTogglePlayerTag: (playerId: number, tag: string) => void;
+    onToggleDraftStatus: (playerId: number) => void;
     isDragging: boolean;
     isDragOver: boolean;
-    isDrafting: boolean;
     onDragStart: (e: React.DragEvent, playerId: number) => void;
     onDragEnter: (e: React.DragEvent, playerId: number) => void;
     onDragEnd: (e: React.DragEvent) => void;
@@ -54,16 +55,16 @@ const PlayerRow: React.FC<PlayerRowProps> = ({
     player, 
     visibleTags, 
     onTogglePlayerTag,
+    onToggleDraftStatus,
     isDragging,
     isDragOver,
-    isDrafting,
     onDragStart,
     onDragEnter,
     onDragEnd
 }) => {
     return (
         <div 
-            draggable={!isDrafting}
+            draggable={!player.isDrafted}
             onDragStart={(e) => onDragStart(e, player.id)}
             onDragEnter={(e) => onDragEnter(e, player.id)}
             onDragEnd={onDragEnd}
@@ -75,8 +76,8 @@ const PlayerRow: React.FC<PlayerRowProps> = ({
             {isDragOver && <div className="absolute top-0 left-0 right-0 h-0.5 bg-blue-500 z-20" />}
             
             {/* Drag Handle */}
-            <div className={`w-10 flex-shrink-0 flex items-center justify-center p-2 border-r border-gray-700 text-gray-500 ${!isDrafting ? 'cursor-grab' : 'cursor-not-allowed'}`}>
-                {!isDrafting && <DragHandleIcon />}
+            <div className={`w-10 flex-shrink-0 flex items-center justify-center p-2 border-r border-gray-700 text-gray-500 ${!player.isDrafted ? 'cursor-grab' : 'cursor-not-allowed'}`}>
+                {!player.isDrafted && <DragHandleIcon />}
             </div>
 
             {/* Player */}
@@ -112,7 +113,13 @@ const PlayerRow: React.FC<PlayerRowProps> = ({
             })}
             {/* Drafted */}
             <div className="w-20 flex-shrink-0 flex justify-center items-center p-2">
-                {player.isDrafted && <DraftedIcon />}
+                <button 
+                    onClick={() => onToggleDraftStatus(player.id)}
+                    className="w-full h-full flex justify-center items-center rounded-md hover:bg-gray-700/50 transition-colors"
+                    title={player.isDrafted ? `Mark ${player.name} as not drafted` : `Mark ${player.name} as drafted`}
+                >
+                    {player.isDrafted && <DraftedIcon />}
+                </button>
             </div>
         </div>
     );
