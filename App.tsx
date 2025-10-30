@@ -1,21 +1,69 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Player, Position } from './types';
-import { PLAYERS_DATA } from './data/players';
 import Header from './components/Header';
 import PlayerRow from './components/PlayerRow';
 
 const ALL_TAGS = ['My Man', 'Breakout', 'Bust', 'Sleeper', 'Value', 'Injury Prone', 'Rookie'];
 
+// This function translates the raw data from the Sleeper API into the Player[] format our app uses.
+const normalizeSleeperData = (sleeperData: { [key: string]: any }): Player[] => {
+    const relevantPositions = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
+    const playersArray = Object.values(sleeperData);
+
+    const filteredAndMapped = playersArray
+        .filter(p => p.active && relevantPositions.includes(p.position))
+        .map((p, index) => ({
+            id: parseInt(p.player_id, 10),
+            rank: index + 1, // Initial rank based on alphabetical order from API
+            name: p.full_name || `${p.first_name} ${p.last_name}`,
+            team: p.team || 'FA',
+            position: (p.position === 'DEF' ? 'DST' : p.position) as Position,
+            bye: 0, // Sleeper's main player endpoint doesn't include bye weeks.
+            isDrafted: false,
+            tags: [],
+        }));
+
+    return filteredAndMapped;
+};
+
 const App: React.FC = () => {
-    const [players, setPlayers] = useState<Player[]>(() => JSON.parse(JSON.stringify(PLAYERS_DATA)));
+    const [players, setPlayers] = useState<Player[]>([]);
+    const [isLoading, setIsLoading] = useState<boolean>(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [positionFilter, setPositionFilter] = useState<Position>(Position.ALL);
     const [isDrafting, setIsDrafting] = useState<boolean>(false);
     const [visibleTags, setVisibleTags] = useState<string[]>([]);
     
+    // Using a ref to store the initial fetched player list for resets
+    const initialPlayersRef = useRef<Player[]>([]);
+
     // Drag and Drop State
     const [draggedPlayerId, setDraggedPlayerId] = useState<number | null>(null);
     const [dragOverPlayerId, setDragOverPlayerId] = useState<number | null>(null);
+    
+    // Fetch data directly from the Sleeper API when the app loads
+    useEffect(() => {
+        const fetchPlayers = async () => {
+            try {
+                setIsLoading(true);
+                const response = await fetch('https://api.sleeper.app/v1/players/nfl');
+                if (!response.ok) {
+                    throw new Error('Failed to fetch players from Sleeper API');
+                }
+                const sleeperData = await response.json();
+                const normalizedPlayers = normalizeSleeperData(sleeperData);
+                
+                setPlayers(normalizedPlayers);
+                initialPlayersRef.current = JSON.parse(JSON.stringify(normalizedPlayers)); // Store a deep copy for resets
+            } catch (error) {
+                console.error("Error fetching player data:", error);
+                // In a real app, you might set an error state here to show in the UI
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchPlayers();
+    }, []);
 
 
     // Draft Simulation Logic
@@ -47,7 +95,8 @@ const App: React.FC = () => {
 
     const handleResetDraft = useCallback(() => {
         setIsDrafting(false);
-        setPlayers(JSON.parse(JSON.stringify(PLAYERS_DATA)));
+        // Reset players from the stored initial list, not the static file
+        setPlayers(JSON.parse(JSON.stringify(initialPlayersRef.current)));
         setSearchTerm('');
         setPositionFilter(Position.ALL);
         setVisibleTags([]);
@@ -83,7 +132,6 @@ const App: React.FC = () => {
     // Drag and Drop Handlers
     const handleDragStart = (e: React.DragEvent, playerId: number) => {
         setDraggedPlayerId(playerId);
-        // Style the drag image
         e.dataTransfer.effectAllowed = 'move';
     };
 
@@ -109,24 +157,19 @@ const App: React.FC = () => {
             const draggedPlayer = currentPlayers.find(p => p.id === draggedPlayerId);
             if (!draggedPlayer) return currentPlayers;
 
-            // Remove dragged player from its original position
             const filteredPlayers = currentPlayers.filter(p => p.id !== draggedPlayerId);
-
-            // Find the index to insert the player
             const dropIndex = filteredPlayers.findIndex(p => p.id === dragOverPlayerId);
 
-            // Insert the player at the new position
             const newPlayersList = [
                 ...filteredPlayers.slice(0, dropIndex),
                 draggedPlayer,
                 ...filteredPlayers.slice(dropIndex)
             ];
 
-            // Re-rank all players
             return newPlayersList.map((p, index) => ({ ...p, rank: index + 1 }));
         });
         
-        handleDragEnd(new Event('dragend') as any); // Reset state after drop
+        handleDragEnd(new Event('dragend') as any);
     };
 
 
@@ -138,18 +181,17 @@ const App: React.FC = () => {
             )
             .filter(p => positionFilter === Position.ALL || p.position === positionFilter);
         
-        // The list is now sorted by the user-defined rank
         return filtered.sort((a, b) => a.rank - b.rank);
     }, [players, searchTerm, positionFilter]);
 
     // Dynamic table width calculation
     const tagColumnWidths: { [key: string]: { class: string, pixels: number } } = {
         'Breakout': { class: 'w-28', pixels: 112 },
-        'Injury Prone': { class: 'w-36', pixels: 144 }, // Increased width
+        'Injury Prone': { class: 'w-36', pixels: 144 },
     };
     const defaultTagWidth = { class: 'w-20', pixels: 80 };
     
-    const baseTableWidth = 490; // Increased to account for drag handle
+    const baseTableWidth = 490;
     const tagColumnsWidth = visibleTags.reduce((acc, tag) => {
         const widthInfo = tagColumnWidths[tag] || defaultTagWidth;
         return acc + widthInfo.pixels;
@@ -180,12 +222,10 @@ const App: React.FC = () => {
                     onDrop={handleDrop}
                     onDragOver={(e) => e.preventDefault()}
                 >
-                    {/* Unified scroll container for both header and rows */}
                     <div className="flex-1 overflow-y-auto">
-                        {/* Sticky Header */}
                         <div className="sticky top-0 bg-gray-800 z-10">
                             <div className="flex items-center text-sm text-gray-400 font-bold uppercase border-b border-gray-700">
-                                <div className="w-10 flex-shrink-0 p-2 border-r border-gray-700"></div> {/* Space for Drag Handle */}
+                                <div className="w-10 flex-shrink-0 p-2 border-r border-gray-700"></div>
                                 <div className="flex-grow p-2 border-r border-gray-700">Player</div>
                                 <div className="w-16 text-center p-2 border-r border-gray-700">Pos</div>
                                 {visibleTags.map(tag => {
@@ -200,8 +240,12 @@ const App: React.FC = () => {
                             </div>
                         </div>
                         
-                        {/* Player List */}
-                        {displayPlayers.length > 0 ? (
+                        {isLoading ? (
+                            <div className="flex flex-col justify-center items-center h-full text-gray-500">
+                                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-400"></div>
+                                <p className="mt-4 text-lg">Fetching latest player data...</p>
+                            </div>
+                        ) : displayPlayers.length > 0 ? (
                            displayPlayers.map(player => (
                                 <PlayerRow
                                     key={player.id}
@@ -217,7 +261,7 @@ const App: React.FC = () => {
                                 />
                             ))
                         ) : (
-                            <p className="p-6 text-center text-gray-500">No players match your criteria.</p>
+                            <p className="p-6 text-center text-gray-500">No players found or failed to load.</p>
                         )}
                     </div>
                 </div>
