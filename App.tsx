@@ -111,7 +111,6 @@ const App: React.FC = () => {
         setSyncError(null);
 
         try {
-            // Step 1: Validate the draft ID itself
             const draftInfoResponse = await fetch(`https://api.sleeper.app/v1/draft/${newDraftId}`);
             if (!draftInfoResponse.ok) {
                 if (draftInfoResponse.status === 404) {
@@ -120,7 +119,6 @@ const App: React.FC = () => {
                 throw new Error(`Failed to verify draft (Status: ${draftInfoResponse.status})`);
             }
 
-            // Step 2: Try to fetch initial picks, but gracefully handle 404 for pre-drafts
             const picksResponse = await fetch(`https://api.sleeper.app/v1/draft/${newDraftId}/picks`);
             if (picksResponse.ok) {
                 const picks = await picksResponse.json();
@@ -129,17 +127,21 @@ const App: React.FC = () => {
                 setPlayers(currentPlayers => 
                     currentPlayers.map(player => ({
                         ...player,
-                        isDrafted: player.isDrafted || draftedPlayerIds.has(player.id)
+                        isDrafted: draftedPlayerIds.has(player.id)
                     }))
                 );
                 setLastSyncTime(new Date());
-            } else if (picksResponse.status !== 404) {
-                // It's an error, but not a "not found" which we accept for pre-drafts
+            } else if (picksResponse.status === 404) {
+                 setPlayers(currentPlayers => 
+                    currentPlayers.map(player => ({
+                        ...player,
+                        isDrafted: false
+                    }))
+                );
+            } else {
                 throw new Error(`Failed to fetch draft data (Status: ${picksResponse.status})`);
             }
-            // If it was a 404, we just continue without error, assuming the draft hasn't started.
 
-            // Step 3: If validation and initial sync passed, connect WebSocket
             setDraftId(newDraftId);
             
             const newWs = new WebSocket('wss://ws.sleeper.app');
@@ -156,13 +158,12 @@ const App: React.FC = () => {
             newWs.onmessage = (event) => {
                 if (syncStatusRef.current === 'paused' || newWs !== ws.current) return;
                 
-                const data = JSON.parse(event.data);
-                
-                if (data.type === 'welcome') {
+                if (syncStatusRef.current === 'syncing') {
                     setSyncStatus('active');
                     setSyncError(null);
-                    return;
                 }
+
+                const data = JSON.parse(event.data);
 
                 if (data.type === 'draft_pick' && data.payload) {
                     const pickedPlayerId = parseInt(data.payload.player_id, 10);
@@ -214,7 +215,7 @@ const App: React.FC = () => {
                 setPlayers(currentPlayers => 
                     currentPlayers.map(player => ({
                         ...player,
-                        isDrafted: player.isDrafted || draftedPlayerIds.has(player.id)
+                        isDrafted: draftedPlayerIds.has(player.id)
                     }))
                 );
                 setLastSyncTime(new Date());
