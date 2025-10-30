@@ -131,28 +131,13 @@ const App: React.FC = () => {
         );
     }, []);
 
-    // Mark a player as drafted or not drafted, and re-calculate ranks
+    // Mark a player as drafted or not drafted
     const handleToggleDraftStatus = useCallback((playerId: number) => {
-        setPlayers(currentPlayers => {
-            const playerToToggle = currentPlayers.find(p => p.id === playerId);
-            if (!playerToToggle) return currentPlayers;
-            
-            const newDraftedStatus = !playerToToggle.isDrafted;
-
-            // Update the player's status
-            const updatedPlayers = currentPlayers.map(p =>
-                p.id === playerId ? { ...p, isDrafted: newDraftedStatus } : p
-            );
-
-            // Separate drafted and undrafted players to re-calculate ranks
-            const undrafted = updatedPlayers.filter(p => !p.isDrafted).sort((a,b) => a.rank - b.rank);
-            const drafted = updatedPlayers.filter(p => p.isDrafted);
-
-            // Re-rank only the undrafted players
-            const rerankedUndrafted = undrafted.map((p, index) => ({...p, rank: index + 1}));
-
-            return [...rerankedUndrafted, ...drafted];
-        });
+        setPlayers(currentPlayers => 
+            currentPlayers.map(p => 
+                p.id === playerId ? { ...p, isDrafted: !p.isDrafted } : p
+            )
+        );
     }, []);
 
     // --- Draft Sync Handlers ---
@@ -263,25 +248,25 @@ const App: React.FC = () => {
         if (draggedPlayerId === null || dragOverPlayerId === null || draggedPlayerId === dragOverPlayerId) return;
 
         setPlayers(currentPlayers => {
-            const undraftedPlayers = currentPlayers.filter(p => !p.isDrafted).sort((a,b) => a.rank - b.rank);
-            const draftedPlayers = currentPlayers.filter(p => p.isDrafted);
-            
-            const draggedPlayer = undraftedPlayers.find(p => p.id === draggedPlayerId);
-            if (!draggedPlayer) return currentPlayers; // Should not happen
+            const draggedPlayer = currentPlayers.find(p => p.id === draggedPlayerId);
+            if (!draggedPlayer) return currentPlayers;
 
-            // Remove the dragged player from their original position
-            const remainingPlayers = undraftedPlayers.filter(p => p.id !== draggedPlayerId);
+            // Create a new array without the dragged player
+            const remainingPlayers = currentPlayers.filter(p => p.id !== draggedPlayerId);
             
-            // Find the new insert position
+            // Find the index to insert the player
             const targetIdx = remainingPlayers.findIndex(p => p.id === dragOverPlayerId);
             
-            // Insert the dragged player at the new position
+            // Insert the dragged player at the correct position
             remainingPlayers.splice(targetIdx, 0, draggedPlayer);
             
-            // Re-calculate ranks for all undrafted players
-            const reRankedUndrafted = remainingPlayers.map((p, index) => ({ ...p, rank: index + 1 }));
-
-            return [...reRankedUndrafted, ...draftedPlayers];
+            // Re-rank the entire list
+            const reRankedPlayers = remainingPlayers.map((p, index) => ({
+                ...p,
+                rank: index + 1,
+            }));
+            
+            return reRankedPlayers;
         });
         
         handleDragEnd(new Event('dragend') as any); // Reset drag state
@@ -294,12 +279,8 @@ const App: React.FC = () => {
             (p.team && p.team.toLowerCase().includes(searchTerm.toLowerCase()))
         )
         .filter(p => positionFilter === Position.ALL || p.position === positionFilter)
-        // Sort by drafted status first, then by rank
-        .sort((a, b) => {
-            if (a.isDrafted && !b.isDrafted) return 1;
-            if (!a.isDrafted && b.isDrafted) return -1;
-            return a.rank - b.rank;
-        });
+        // Sort only by rank
+        .sort((a, b) => a.rank - b.rank);
 
     // --- Dynamic Table Width Calculation ---
     // This allows the table to expand and shrink based on visible tag columns
