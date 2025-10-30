@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Player, Position } from './types';
 import Header from './components/Header';
 import PlayerRow from './components/PlayerRow';
@@ -62,11 +62,7 @@ const App: React.FC = () => {
     const [draftId, setDraftId] = useState<string | null>(null);
     const [syncError, setSyncError] = useState<string | null>(null);
     const wsRef = useRef<WebSocket | null>(null);
-    const syncStatusRef = useRef(syncStatus);
-
-    useEffect(() => {
-        syncStatusRef.current = syncStatus;
-    }, [syncStatus]);
+    const intentionalClose = useRef(false);
 
 
     // Fetch player data from the Sleeper API when the component mounts
@@ -151,10 +147,12 @@ const App: React.FC = () => {
 
     const handleStartSync = useCallback(async (url: string) => {
         if (wsRef.current) {
+             intentionalClose.current = true;
             wsRef.current.close();
         }
         setSyncStatus('syncing');
         setSyncError(null);
+        intentionalClose.current = false;
     
         const match = url.match(/sleeper\.(?:app|com)\/draft\/nfl\/(\d+)|^\s*(\d+)\s*$/);
         const id = match ? (match[1] || match[2]) : null;
@@ -164,10 +162,21 @@ const App: React.FC = () => {
             setSyncError("Invalid Sleeper URL or Draft ID. Please check the format.");
             return;
         }
-        setDraftId(id);
-    
+        
         try {
+             // First, validate the draft exists
+            const draftCheckResponse = await fetch(`https://api.sleeper.app/v1/draft/${id}`);
+            if (!draftCheckResponse.ok) {
+                 if (draftCheckResponse.status === 404) {
+                    throw new Error("Draft not found. Please check if the URL/ID is correct.");
+                 }
+                throw new Error(`Failed to validate draft (Status: ${draftCheckResponse.status})`);
+            }
+            setDraftId(id);
+
+            // Fetch existing picks to get the board up-to-date
             const picksResponse = await fetch(`https://api.sleeper.app/v1/draft/${id}/picks`);
+             // A 404 is okay, it just means the draft hasn't started
             if (!picksResponse.ok && picksResponse.status !== 404) {
                 throw new Error(`Failed to fetch draft data (Status: ${picksResponse.status})`);
             }
@@ -183,14 +192,17 @@ const App: React.FC = () => {
             wsRef.current = ws;
     
             ws.onopen = () => {
-                ws.send(JSON.stringify({ type: 'subscribe', topic: `draft:NFL:${id}` }));
+                // Do not subscribe here. Wait for the 'connected' message from the server.
             };
     
             ws.onmessage = (event) => {
-                if (syncStatusRef.current !== 'active') {
-                    setSyncStatus('active');
-                }
                 const message = JSON.parse(event.data);
+
+                if (message.type === 'connected') {
+                    ws.send(JSON.stringify({ type: 'subscribe', topic: `draft:NFL:${id}` }));
+                     setSyncStatus('active'); // Connection is live
+                }
+                
                 if (message.type === 'draft' && message.data) {
                     const pickedPlayerId = parseInt(message.data.player_id, 10);
                     if (pickedPlayerId) {
@@ -202,16 +214,10 @@ const App: React.FC = () => {
             };
     
             ws.onclose = () => {
-                if (syncStatusRef.current !== 'idle') {
+                 if (!intentionalClose.current) {
                     setSyncStatus('error');
                     setSyncError('Connection lost. Please try reconnecting.');
                 }
-                wsRef.current = null;
-            };
-    
-            ws.onerror = () => {
-                setSyncStatus('error');
-                setSyncError('A connection error occurred.');
                 wsRef.current = null;
             };
     
@@ -219,6 +225,7 @@ const App: React.FC = () => {
             setSyncStatus('error');
             setSyncError(e.message || "Failed to start sync.");
             if (wsRef.current) {
+                 intentionalClose.current = true;
                 wsRef.current.close();
                 wsRef.current = null;
             }
@@ -226,11 +233,12 @@ const App: React.FC = () => {
     }, []);
 
     const handleStopSync = () => {
-        setSyncStatus('idle');
         if (wsRef.current) {
+            intentionalClose.current = true;
             wsRef.current.close();
             wsRef.current = null;
         }
+        setSyncStatus('idle');
         setDraftId(null);
         setSyncError(null);
     };
@@ -238,6 +246,7 @@ const App: React.FC = () => {
     useEffect(() => {
         return () => { // Cleanup on unmount
             if (wsRef.current) {
+                intentionalClose.current = true;
                 wsRef.current.close();
             }
         };
@@ -299,16 +308,14 @@ const App: React.FC = () => {
         handleDragEnd(new Event('dragend') as any); // Reset drag state
     };
 
-    // Filter and sort players for display. Memoized for performance.
-    const displayPlayers = useMemo(() => {
-        return players
-            .filter(p =>
-                p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (p.team && p.team.toLowerCase().includes(searchTerm.toLowerCase()))
-            )
-            .filter(p => positionFilter === Position.ALL || p.position === positionFilter)
-            .sort((a, b) => a.rank - b.rank);
-    }, [players, searchTerm, positionFilter]);
+    // Filter and sort players for display.
+    const displayPlayers = players
+        .filter(p =>
+            p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (p.team && p.team.toLowerCase().includes(searchTerm.toLowerCase()))
+        )
+        .filter(p => positionFilter === Position.ALL || p.position === positionFilter)
+        .sort((a, b) => a.rank - b.rank);
 
     // --- Dynamic Table Width Calculation ---
     // This allows the table to expand and shrink based on visible tag columns
