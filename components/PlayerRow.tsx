@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Player } from '../types';
 import { 
@@ -17,6 +18,7 @@ interface PlayerRowProps {
     visibleTags: string[];
     onTogglePlayerTag: (playerId: number, tag: string) => void;
     onToggleDraftStatus: (playerId: number) => void;
+    onOpenAnalysisModal: (player: Player) => void;
     isDragging: boolean;
     isDragOver: boolean;
     onDragStart: (e: React.DragEvent, playerId: number) => void;
@@ -55,6 +57,7 @@ const PlayerRow: React.FC<PlayerRowProps> = ({
     visibleTags, 
     onTogglePlayerTag,
     onToggleDraftStatus,
+    onOpenAnalysisModal,
     isDragging,
     isDragOver,
     onDragStart,
@@ -84,10 +87,10 @@ const PlayerRow: React.FC<PlayerRowProps> = ({
             </div>
 
             {/* Player */}
-            <div className="flex-grow flex items-center min-w-0 p-2 border-r border-gray-700">
+            <div className="flex-grow flex items-center min-w-0 p-2 border-r border-gray-700 cursor-pointer" onClick={() => onOpenAnalysisModal(player)}>
                 <div className="w-10 flex-shrink-0 text-center font-bold">{player.rank}</div>
                 <div className="ml-2 min-w-0">
-                    <p className={`font-semibold truncate ${player.isDrafted ? 'text-red-500' : 'text-white'}`}>{player.name}</p>
+                    <p className={`font-semibold truncate ${player.isDrafted ? 'text-gray-500 line-through' : 'text-white'}`}>{player.name}</p>
                     <p className="text-xs">{player.team || 'FA'}</p>
                 </div>
             </div>

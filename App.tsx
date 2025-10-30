@@ -1,9 +1,10 @@
 
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Player, Position } from './types';
 import Header from './components/Header';
 import PlayerRow from './components/PlayerRow';
-import SyncModal from './components/SyncModal';
+import PlayerAnalysisModal from './components/PlayerAnalysisModal';
+import { getPlayerAnalysis } from './services/geminiService';
 
 const ALL_TAGS = ['My Man', 'Breakout', 'Bust', 'Sleeper', 'Value', 'Injury Prone', 'Rookie'];
 
@@ -32,8 +33,6 @@ const normalizeSleeperData = (data: any): Player[] => {
     }));
 };
 
-type SyncStatus = 'idle' | 'syncing' | 'active' | 'paused' | 'error';
-
 const App: React.FC = () => {
     const [players, setPlayers] = useState<Player[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -45,17 +44,9 @@ const App: React.FC = () => {
     const [draggedPlayerId, setDraggedPlayerId] = useState<number | null>(null);
     const [dragOverPlayerId, setDragOverPlayerId] = useState<number | null>(null);
 
-    const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
-    const [draftId, setDraftId] = useState<string | null>(null);
-    const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
-    const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
-    const [syncError, setSyncError] = useState<string | null>(null);
-    
-    const ws = useRef<WebSocket | null>(null);
-    const syncStatusRef = useRef(syncStatus);
-    useEffect(() => {
-        syncStatusRef.current = syncStatus;
-    }, [syncStatus]);
+    const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
+    const [analysis, setAnalysis] = useState<string>('');
+    const [isAnalysisLoading, setIsAnalysisLoading] = useState<boolean>(false);
 
     const fetchPlayers = useCallback(async () => {
         setIsLoading(true);
@@ -76,178 +67,28 @@ const App: React.FC = () => {
         }
     }, []);
 
-    const cleanupWebSocket = useCallback(() => {
-        if (ws.current) {
-            ws.current.onopen = null;
-            ws.current.onmessage = null;
-            ws.current.onerror = null;
-            ws.current.onclose = null;
-            if (ws.current.readyState === WebSocket.OPEN || ws.current.readyState === WebSocket.CONNECTING) {
-                ws.current.close();
-            }
-            ws.current = null;
+    useEffect(() => {
+        fetchPlayers();
+    }, [fetchPlayers]);
+    
+    const handleOpenAnalysisModal = useCallback(async (player: Player) => {
+        setSelectedPlayer(player);
+        setIsAnalysisLoading(true);
+        setAnalysis('');
+        try {
+            const result = await getPlayerAnalysis(player);
+            setAnalysis(result);
+        } catch (e) {
+            setAnalysis('Failed to load analysis.');
+        } finally {
+            setIsAnalysisLoading(false);
         }
     }, []);
 
-    useEffect(() => {
-        fetchPlayers();
-        return () => {
-            cleanupWebSocket();
-        };
-    }, [fetchPlayers, cleanupWebSocket]);
-    
-    const handleStartSync = useCallback(async (urlOrId: string) => {
-        const extractDraftId = (input: string): string | null => {
-            const idRegex = /(\d{18,})/; 
-            const match = input.trim().match(idRegex);
-            return match ? match[0] : null;
-        };
-
-        const newDraftId = extractDraftId(urlOrId);
-
-        if (!newDraftId) {
-            setSyncError("Invalid Sleeper URL or Draft ID. Please provide a valid URL or just the numeric ID.");
-            setSyncStatus('error');
-            return;
-        }
-
-        cleanupWebSocket();
-        setSyncStatus('syncing');
-        setSyncError(null);
-        setDraftId(newDraftId);
-
-        try {
-            const draftInfoResponse = await fetch(`https://api.sleeper.app/v1/draft/${newDraftId}`);
-            if (!draftInfoResponse.ok) {
-                if (draftInfoResponse.status === 404) {
-                    throw new Error("Draft not found. Please check if the URL or ID is correct.");
-                }
-                throw new Error(`Failed to verify draft (Status: ${draftInfoResponse.status})`);
-            }
-
-            const picksResponse = await fetch(`https://api.sleeper.app/v1/draft/${newDraftId}/picks`);
-            if (picksResponse.ok) {
-                const picks = await picksResponse.json();
-                const draftedPlayerIds = new Set(picks.map((pick: any) => parseInt(pick.player_id, 10)));
-                
-                setPlayers(currentPlayers => 
-                    currentPlayers.map(player => ({
-                        ...player,
-                        isDrafted: draftedPlayerIds.has(player.id)
-                    }))
-                );
-            } else if (picksResponse.status === 404) {
-                 setPlayers(currentPlayers => 
-                    currentPlayers.map(player => ({
-                        ...player,
-                        isDrafted: false
-                    }))
-                );
-            } else {
-                throw new Error(`Failed to fetch initial draft picks (Status: ${picksResponse.status})`);
-            }
-            setLastSyncTime(new Date());
-            
-            const newWs = new WebSocket('wss://ws.sleeper.app');
-            ws.current = newWs;
-            
-            newWs.onopen = () => {
-                const subscribeMsg = JSON.stringify({
-                    type: "subscribe",
-                    payload: { channel: `draft:${newDraftId}` }
-                });
-                newWs.send(subscribeMsg);
-            };
-
-            newWs.onmessage = (event) => {
-                if (syncStatusRef.current === 'paused' || newWs !== ws.current) return;
-                
-                if (syncStatusRef.current === 'syncing') {
-                    setSyncStatus('active');
-                    setSyncError(null);
-                }
-
-                const data = JSON.parse(event.data);
-
-                if (data.type === 'draft_pick' && data.payload) {
-                    const pickedPlayerId = parseInt(data.payload.player_id, 10);
-                    if (pickedPlayerId) {
-                        setPlayers(currentPlayers =>
-                            currentPlayers.map(player =>
-                                player.id === pickedPlayerId
-                                    ? { ...player, isDrafted: true }
-                                    : player
-                            )
-                        );
-                        setLastSyncTime(new Date());
-                    }
-                }
-            };
-
-            newWs.onclose = (event: CloseEvent) => {
-                 if (newWs !== ws.current || syncStatusRef.current === 'idle') return;
-                 
-                 const errorMessage = syncStatusRef.current === 'syncing'
-                    ? 'Connection failed. Please check the draft URL and your network.'
-                    : `Live connection lost (Code: ${event.code}). Please try reconnecting.`;
-
-                 setSyncError(errorMessage);
-                 setSyncStatus('error');
-            };
-
-        } catch (e: any) {
-            console.error("Error starting sync:", e);
-            setSyncError(e.message || "An unknown error occurred during sync setup.");
-            setSyncStatus('error');
-            cleanupWebSocket();
-        }
-    }, [cleanupWebSocket]);
-    
-    const handleTogglePauseSync = () => {
-        setSyncStatus(prev => (prev === 'active' ? 'paused' : 'active'));
+    const handleCloseAnalysisModal = () => {
+        setSelectedPlayer(null);
+        setAnalysis('');
     };
-    
-    const handleForceRefresh = useCallback(async () => {
-        if (!draftId) return;
-
-        try {
-            const picksResponse = await fetch(`https://api.sleeper.app/v1/draft/${draftId}/picks`);
-            if (picksResponse.ok) {
-                const picks = await picksResponse.json();
-                const draftedPlayerIds = new Set(picks.map((pick: any) => parseInt(pick.player_id, 10)));
-                
-                setPlayers(currentPlayers => 
-                    currentPlayers.map(player => ({
-                        ...player,
-                        isDrafted: draftedPlayerIds.has(player.id)
-                    }))
-                );
-                setLastSyncTime(new Date());
-                alert('Draft picks refreshed successfully!');
-            } else {
-                throw new Error(`Failed to refresh picks (Status: ${picksResponse.status})`);
-            }
-        } catch (e: any) {
-            console.error("Error during force refresh:", e);
-            alert(`Error refreshing picks: ${e.message}`);
-        }
-    }, [draftId]);
-
-    const handleRemoveSync = useCallback(() => {
-        if(window.confirm('This will disconnect from the live draft and reset the drafted status for all players on the board. Are you sure?')) {
-            cleanupWebSocket();
-            setDraftId(null);
-            setLastSyncTime(null);
-            setSyncError(null);
-            setSyncStatus('idle');
-            setPlayers(currentPlayers => 
-                currentPlayers.map(player => ({
-                    ...player,
-                    isDrafted: false
-                }))
-            );
-        }
-    }, [cleanupWebSocket]);
 
     const handleToggleTag = (tag: string) => {
         setVisibleTags(prev => {
@@ -270,11 +111,20 @@ const App: React.FC = () => {
     }, []);
 
     const handleToggleDraftStatus = useCallback((playerId: number) => {
-        setPlayers(currentPlayers => 
-            currentPlayers.map(p =>
+        setPlayers(currentPlayers => {
+            const playersCopy = currentPlayers.map(p =>
                 p.id === playerId ? { ...p, isDrafted: !p.isDrafted } : p
-            )
-        );
+            );
+            
+            const undraftedPlayers = playersCopy
+                .filter(p => !p.isDrafted)
+                .sort((a, b) => a.rank - b.rank)
+                .map((p, index) => ({ ...p, rank: index + 1 }));
+                
+            const draftedPlayers = playersCopy.filter(p => p.isDrafted);
+            
+            return [...undraftedPlayers, ...draftedPlayers];
+        });
     }, []);
 
     const handleDragStart = (e: React.DragEvent, playerId: number) => {
@@ -310,15 +160,17 @@ const App: React.FC = () => {
                 return currentPlayers;
             }
 
-            const playersCopy = [...currentPlayers];
-            const draggedIdx = playersCopy.findIndex(p => p.id === draggedPlayerId);
-            const [removed] = playersCopy.splice(draggedIdx, 1);
-            const targetIdx = playersCopy.findIndex(p => p.id === dragOverPlayerId);
-            playersCopy.splice(targetIdx, 0, removed);
+            const undraftedPlayers = currentPlayers.filter(p => !p.isDrafted);
+            const draftedPlayers = currentPlayers.filter(p => p.isDrafted);
             
-            const reRanked = playersCopy.map((p, index) => ({ ...p, rank: index + 1 }));
+            const draggedIdx = undraftedPlayers.findIndex(p => p.id === draggedPlayerId);
+            const [removed] = undraftedPlayers.splice(draggedIdx, 1);
+            const targetIdx = undraftedPlayers.findIndex(p => p.id === dragOverPlayerId);
+            undraftedPlayers.splice(targetIdx, 0, removed);
+            
+            const reRankedUndrafted = undraftedPlayers.map((p, index) => ({ ...p, rank: index + 1 }));
 
-            return reRanked;
+            return [...reRankedUndrafted, ...draftedPlayers];
         });
         
         handleDragEnd(new Event('dragend') as any);
@@ -330,7 +182,12 @@ const App: React.FC = () => {
             (p.team && p.team.toLowerCase().includes(searchTerm.toLowerCase()))
         )
         .filter(p => positionFilter === Position.ALL || p.position === positionFilter)
-        .sort((a, b) => a.rank - b.rank);
+        .sort((a, b) => {
+            if (a.isDrafted !== b.isDrafted) {
+                return a.isDrafted ? 1 : -1;
+            }
+            return a.rank - b.rank;
+        });
 
     const tagColumnWidths: { [key: string]: { class: string, pixels: number } } = {
         'Breakout': { class: 'w-28', pixels: 112 },
@@ -355,19 +212,13 @@ const App: React.FC = () => {
                 allTags={ALL_TAGS}
                 visibleTags={visibleTags}
                 onToggleTag={handleToggleTag}
-                onOpenSyncModal={() => setIsSyncModalOpen(true)}
             />
-
-            <SyncModal
-                isOpen={isSyncModalOpen}
-                status={syncStatus}
-                error={syncError}
-                lastSyncTime={lastSyncTime}
-                onClose={() => setIsSyncModalOpen(false)}
-                onStartSync={handleStartSync}
-                onTogglePause={handleTogglePauseSync}
-                onForceRefresh={handleForceRefresh}
-                onRemoveSync={handleRemoveSync}
+            
+            <PlayerAnalysisModal
+                player={selectedPlayer}
+                analysis={analysis}
+                isLoading={isAnalysisLoading}
+                onClose={handleCloseAnalysisModal}
             />
 
             <main className="container mx-auto p-4 flex-1 min-h-0">
@@ -407,6 +258,7 @@ const App: React.FC = () => {
                                     visibleTags={visibleTags}
                                     onTogglePlayerTag={handleTogglePlayerTag}
                                     onToggleDraftStatus={handleToggleDraftStatus}
+                                    onOpenAnalysisModal={handleOpenAnalysisModal}
                                     isDragging={draggedPlayerId === player.id}
                                     isDragOver={dragOverPlayerId === player.id}
                                     onDragStart={handleDragStart}
