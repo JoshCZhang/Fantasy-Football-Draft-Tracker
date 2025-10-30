@@ -1,7 +1,6 @@
-
 import React, { useState } from 'react';
 import { Position } from '../types';
-import { SearchIcon, ChevronDownIcon } from './Icons';
+import { SearchIcon, ChevronDownIcon, SyncDraftIcon } from './Icons';
 
 interface HeaderProps {
     searchTerm: string;
@@ -11,13 +10,14 @@ interface HeaderProps {
     allTags: string[];
     visibleTags: string[];
     onToggleTag: (tag: string) => void;
+    onOpenSyncModal: () => void;
 }
 
 const positionFilters: Position[] = [Position.ALL, Position.QB, Position.RB, Position.WR, Position.TE, Position.K, Position.DST];
 
 const Header: React.FC<HeaderProps> = ({ 
     searchTerm, setSearchTerm, positionFilter, setPositionFilter, 
-    allTags, visibleTags, onToggleTag
+    allTags, visibleTags, onToggleTag, onOpenSyncModal
 }) => {
     const [isTagsDropdownOpen, setIsTagsDropdownOpen] = useState(false);
 
@@ -79,6 +79,15 @@ const Header: React.FC<HeaderProps> = ({
                             </div>
                         )}
                     </div>
+
+                    <button
+                        onClick={onOpenSyncModal}
+                        className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md flex items-center gap-2 hover:bg-gray-600 transition-colors"
+                        title="Sync with a live Sleeper draft"
+                    >
+                        <SyncDraftIcon />
+                        <span className="text-sm font-semibold">Sync Draft</span>
+                    </button>
                 </div>
             </div>
         </header>

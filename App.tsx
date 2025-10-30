@@ -1,10 +1,11 @@
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Player, Position } from './types';
 import Header from './components/Header';
 import PlayerRow from './components/PlayerRow';
 import PlayerAnalysisModal from './components/PlayerAnalysisModal';
 import { getPlayerAnalysis } from './services/geminiService';
+import SyncModal from './components/SyncModal';
 
 const ALL_TAGS = ['My Man', 'Breakout', 'Bust', 'Sleeper', 'Value', 'Injury Prone', 'Rookie'];
 
@@ -33,6 +34,8 @@ const normalizeSleeperData = (data: any): Player[] => {
     }));
 };
 
+type SyncStatus = 'idle' | 'syncing' | 'active' | 'paused' | 'error';
+
 const App: React.FC = () => {
     const [players, setPlayers] = useState<Player[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -47,6 +50,11 @@ const App: React.FC = () => {
     const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
     const [analysis, setAnalysis] = useState<string>('');
     const [isAnalysisLoading, setIsAnalysisLoading] = useState<boolean>(false);
+    
+    const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+    const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
+    const [syncError, setSyncError] = useState<string | null>(null);
+    const webSocketRef = useRef<WebSocket | null>(null);
 
     const fetchPlayers = useCallback(async () => {
         setIsLoading(true);
@@ -89,6 +97,103 @@ const App: React.FC = () => {
         setSelectedPlayer(null);
         setAnalysis('');
     };
+    
+    const handleRemoveSync = useCallback(() => {
+        if (webSocketRef.current) {
+            webSocketRef.current.close();
+            webSocketRef.current = null;
+        }
+        setSyncStatus('idle');
+        setSyncError(null);
+    }, []);
+
+    const handleStartSync = useCallback(async (draftIdentifier: string) => {
+        handleRemoveSync(); // Ensure any existing connection is closed
+        setSyncStatus('syncing');
+        setSyncError(null);
+
+        const draftIdMatch = draftIdentifier.match(/\d{18,}/);
+        const draftId = draftIdMatch ? draftIdMatch[0] : draftIdentifier;
+
+        if (!/^\d+$/.test(draftId)) {
+            setSyncStatus('error');
+            setSyncError("Invalid Draft ID format. Please use a Sleeper URL or a numeric Draft ID.");
+            return;
+        }
+        
+        try {
+            // 1. Validate Draft
+            const draftResponse = await fetch(`https://api.sleeper.app/v1/draft/${draftId}`);
+            if (!draftResponse.ok) {
+                 if (draftResponse.status === 404) {
+                    throw new Error("Draft not found. Please check if the URL or ID is correct.");
+                }
+                throw new Error(`Failed to verify draft (Status: ${draftResponse.status})`);
+            }
+
+            // 2. Fetch existing picks
+            const picksResponse = await fetch(`https://api.sleeper.app/v1/draft/${draftId}/picks`);
+            let draftedPlayerIds = new Set<number>();
+            if (picksResponse.ok) {
+                // FIX: Used the correct response variable `picksResponse` instead of the undefined `response`.
+                const picks = await picksResponse.json();
+                picks.forEach((pick: any) => {
+                    if (pick.player_id) {
+                         draftedPlayerIds.add(parseInt(pick.player_id, 10));
+                    }
+                });
+            } else if (picksResponse.status !== 404) { // 404 is ok, means draft hasn't started
+                throw new Error(`Failed to fetch draft picks (Status: ${picksResponse.status})`);
+            }
+            
+            setPlayers(current => current.map(p => ({ ...p, isDrafted: draftedPlayerIds.has(p.id) })));
+
+            // 3. Establish WebSocket connection
+            const ws = new WebSocket('wss://ws.sleeper.app');
+            webSocketRef.current = ws;
+
+            ws.onopen = () => {
+                ws.send(JSON.stringify({ type: 'subscribe', channel: 'draft', payload: { draft_id: draftId } }));
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'draft' && data.data.type === 'pick') {
+                    const pickedPlayerId = parseInt(data.data.payload.player_id, 10);
+                    setPlayers(current =>
+                        current.map(p =>
+                            p.id === pickedPlayerId ? { ...p, isDrafted: true } : p
+                        )
+                    );
+                }
+                // The first message received confirms an active connection
+                if(syncStatus !== 'active') {
+                   setSyncStatus('active');
+                }
+            };
+            
+            ws.onclose = () => {
+                if (syncStatus !== 'idle') {
+                    setSyncStatus('error');
+                    setSyncError("Connection lost. Please try reconnecting.");
+                }
+            };
+
+        } catch (err: any) {
+            setSyncStatus('error');
+            setSyncError(err.message || 'An unknown error occurred.');
+        }
+
+    }, [handleRemoveSync, syncStatus]);
+
+    useEffect(() => {
+        // Cleanup WebSocket on component unmount
+        return () => {
+            if (webSocketRef.current) {
+                webSocketRef.current.close();
+            }
+        };
+    }, []);
 
     const handleToggleTag = (tag: string) => {
         setVisibleTags(prev => {
@@ -198,6 +303,7 @@ const App: React.FC = () => {
                 allTags={ALL_TAGS}
                 visibleTags={visibleTags}
                 onToggleTag={handleToggleTag}
+                onOpenSyncModal={() => setIsSyncModalOpen(true)}
             />
             
             <PlayerAnalysisModal
@@ -205,6 +311,15 @@ const App: React.FC = () => {
                 analysis={analysis}
                 isLoading={isAnalysisLoading}
                 onClose={handleCloseAnalysisModal}
+            />
+
+            <SyncModal
+                isOpen={isSyncModalOpen}
+                onClose={() => setIsSyncModalOpen(false)}
+                onStartSync={handleStartSync}
+                onRemoveSync={handleRemoveSync}
+                status={syncStatus}
+                error={syncError}
             />
 
             <main className="container mx-auto p-4 flex-1 min-h-0">

@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 export const SearchIcon = () => (
@@ -39,6 +38,13 @@ export const TrashIcon = () => (
         <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
     </svg>
 );
+
+export const SyncDraftIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 8.25H7.5a2.25 2.25 0 0 0-2.25 2.25v9a2.25 2.25 0 0 0 2.25 2.25h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25H15m0-3-3-3m0 0-3 3m3-3V15" />
+    </svg>
+);
+
 
 export const DraftedIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -83,6 +89,7 @@ export const ExclamationIcon: React.FC<{className?: string}> = ({ className }) =
 
 export const BandAidIcon: React.FC<{className?: string}> = ({ className }) => (
     <IconWrapper className={className}>
+        {/* FIX: Corrected syntax error in strokeWidth attribute */}
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
             <g transform="rotate(45 12 12)">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 8.25h-10.5a3.75 3.75 0 00-3.75 3.75v0c0 2.071 1.679 3.75 3.75 3.75h10.5a3.75 3.75 0 003.75-3.75v0c0-2.071-1.679-3.75-3.75-3.75z" />

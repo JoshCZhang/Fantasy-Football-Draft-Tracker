@@ -2,13 +2,11 @@
 import { GoogleGenAI } from "@google/genai";
 import { Player } from "../types";
 
-let ai: GoogleGenAI | undefined;
+// FIX: Initialize the Gemini AI client once at the module level.
+// This prevents re-creating the client on every function call and allows for better state management.
+const ai = process.env.API_KEY ? new GoogleGenAI({ apiKey: process.env.API_KEY }) : null;
 
-// FIX: Initialize the Gemini AI client only if the API key is available.
-// This prevents the application from crashing if the key is not set and aligns with best practices.
-if (process.env.API_KEY) {
-  ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-} else {
+if (!ai) {
   // This warning is for the developer running the application.
   console.warn("API_KEY not found in environment variables. Gemini features will not work.");
 }
