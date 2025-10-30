@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Position } from '../types';
-import { SearchIcon, ChevronDownIcon, SyncIcon, SaveIcon, LoadIcon, SyncDraftIcon } from './Icons';
+import { SearchIcon, ChevronDownIcon, SyncDraftIcon } from './Icons';
 
 interface HeaderProps {
     searchTerm: string;
@@ -12,17 +12,13 @@ interface HeaderProps {
     visibleTags: string[];
     onToggleTag: (tag: string) => void;
     onOpenSyncModal: () => void;
-    onSaveRankings: () => void;
-    onLoadRankings: () => void;
-    onRefreshPlayers: () => void;
 }
 
 const positionFilters: Position[] = [Position.ALL, Position.QB, Position.RB, Position.WR, Position.TE, Position.K, Position.DST];
 
 const Header: React.FC<HeaderProps> = ({ 
     searchTerm, setSearchTerm, positionFilter, setPositionFilter, 
-    allTags, visibleTags, onToggleTag, onOpenSyncModal,
-    onSaveRankings, onLoadRankings, onRefreshPlayers
+    allTags, visibleTags, onToggleTag, onOpenSyncModal
 }) => {
     const [isTagsDropdownOpen, setIsTagsDropdownOpen] = useState(false);
 
@@ -91,30 +87,6 @@ const Header: React.FC<HeaderProps> = ({
                     >
                         <SyncDraftIcon />
                         <span className="text-sm font-semibold hidden sm:inline">Sync Draft</span>
-                    </button>
-                    <button
-                        onClick={onSaveRankings}
-                        className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md flex items-center gap-2 hover:bg-gray-600 transition-colors"
-                        title="Save current rankings"
-                    >
-                        <SaveIcon />
-                        <span className="text-sm font-semibold hidden sm:inline">Save</span>
-                    </button>
-                    <button
-                        onClick={onLoadRankings}
-                        className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md flex items-center gap-2 hover:bg-gray-600 transition-colors"
-                        title="Load rankings"
-                    >
-                        <LoadIcon />
-                        <span className="text-sm font-semibold hidden sm:inline">Load</span>
-                    </button>
-                    <button
-                        onClick={onRefreshPlayers}
-                        className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md flex items-center gap-2 hover:bg-gray-600 transition-colors sm:ml-auto"
-                        title="Refresh player database from Sleeper"
-                    >
-                        <SyncIcon />
-                        <span className="text-sm font-semibold hidden sm:inline">Refresh Database</span>
                     </button>
                 </div>
             </div>

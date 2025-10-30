@@ -4,8 +4,6 @@ import { Player, Position } from './types';
 import Header from './components/Header';
 import PlayerRow from './components/PlayerRow';
 import SyncModal from './components/SyncModal';
-import SaveRankingsModal from './components/SaveRankingsModal';
-import LoadRankingsModal from './components/LoadRankingsModal';
 
 const ALL_TAGS = ['My Man', 'Breakout', 'Bust', 'Sleeper', 'Value', 'Injury Prone', 'Rookie'];
 
@@ -35,7 +33,6 @@ const normalizeSleeperData = (data: any): Player[] => {
 };
 
 type SyncStatus = 'idle' | 'syncing' | 'active' | 'paused' | 'error';
-type SavedRanking = { name: string; players: Player[]; date: string };
 
 const App: React.FC = () => {
     const [players, setPlayers] = useState<Player[]>([]);
@@ -53,10 +50,6 @@ const App: React.FC = () => {
     const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
     const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
     const [syncError, setSyncError] = useState<string | null>(null);
-
-    const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
-    const [isLoadModalOpen, setIsLoadModalOpen] = useState(false);
-    const [savedRankings, setSavedRankings] = useState<SavedRanking[]>([]);
     
     const ws = useRef<WebSocket | null>(null);
     const syncStatusRef = useRef(syncStatus);
@@ -74,42 +67,7 @@ const App: React.FC = () => {
             }
             const data = await response.json();
             const newPlayers = normalizeSleeperData(data);
-            
-            setPlayers(currentPlayers => {
-                if (currentPlayers.length === 0) {
-                    return newPlayers;
-                }
-
-                const newPlayersMap = new Map(newPlayers.map(p => [p.id, p]));
-                const currentPlayerIds = new Set(currentPlayers.map(p => p.id));
-
-                const updatedPlayers = currentPlayers
-                    .map(p => {
-                        const newPlayerData = newPlayersMap.get(p.id);
-                        if (newPlayerData) {
-                            return {
-                                ...p,
-                                name: newPlayerData.name,
-                                team: newPlayerData.team,
-                                position: newPlayerData.position,
-                            };
-                        }
-                        return p;
-                    })
-                    .filter(p => newPlayersMap.has(p.id));
-
-                const brandNewPlayers = newPlayers.filter(p => !currentPlayerIds.has(p.id));
-                
-                const combinedList = [...updatedPlayers, ...brandNewPlayers];
-                
-                const undrafted = combinedList.filter(p => !p.isDrafted).sort((a,b) => a.rank - b.rank);
-                const drafted = combinedList.filter(p => p.isDrafted);
-                
-                const reRankedUndrafted = undrafted.map((p, index) => ({...p, rank: index + 1}));
-
-                return [...reRankedUndrafted, ...drafted];
-            });
-
+            setPlayers(newPlayers);
         } catch (e) {
             console.error("Error fetching player data:", e);
             setError("Failed to fetch player data. Please try refreshing the page.");
@@ -124,54 +82,20 @@ const App: React.FC = () => {
             ws.current.onmessage = null;
             ws.current.onerror = null;
             ws.current.onclose = null;
-            ws.current.close();
+            if (ws.current.readyState === WebSocket.OPEN || ws.current.readyState === WebSocket.CONNECTING) {
+                ws.current.close();
+            }
             ws.current = null;
         }
     }, []);
 
     useEffect(() => {
         fetchPlayers();
-        try {
-            const storedRankings = localStorage.getItem('fantasyRankings');
-            if (storedRankings) {
-                setSavedRankings(JSON.parse(storedRankings));
-            }
-        } catch (error) {
-            console.error("Failed to load rankings from local storage:", error);
-        }
-
         return () => {
             cleanupWebSocket();
         };
     }, [fetchPlayers, cleanupWebSocket]);
     
-    const fetchDraftPicks = useCallback(async (currentDraftId: string) => {
-        if (!currentDraftId) return;
-        setSyncStatus('syncing');
-        setSyncError(null);
-        try {
-            const response = await fetch(`https://api.sleeper.app/v1/draft/${currentDraftId}/picks`);
-            if (!response.ok) {
-                throw new Error(`Failed to fetch draft data. Sleeper API returned status: ${response.status}`);
-            }
-            const picks = await response.json();
-            const draftedPlayerIds = new Set(picks.map((pick: any) => parseInt(pick.player_id, 10)));
-            
-            setPlayers(currentPlayers => 
-                currentPlayers.map(player => ({
-                    ...player,
-                    isDrafted: player.isDrafted || draftedPlayerIds.has(player.id)
-                }))
-            );
-            setLastSyncTime(new Date());
-        } catch (e: any) {
-            console.error("Error syncing draft:", e);
-            setSyncError(e.message || "An unknown error occurred during sync.");
-            setSyncStatus('error');
-            throw e;
-        }
-    }, []);
-
     const handleStartSync = useCallback(async (url: string) => {
         const match = url.match(/sleeper\.com\/draft\/nfl\/(\d+)/);
         const newDraftId = match ? match[1] : null;
@@ -185,16 +109,43 @@ const App: React.FC = () => {
         cleanupWebSocket();
         setSyncStatus('syncing');
         setSyncError(null);
-        
+
         try {
-            await fetchDraftPicks(newDraftId);
+            // Step 1: Validate the draft ID itself
+            const draftInfoResponse = await fetch(`https://api.sleeper.app/v1/draft/${newDraftId}`);
+            if (!draftInfoResponse.ok) {
+                if (draftInfoResponse.status === 404) {
+                    throw new Error("Draft not found. Please check if the URL is correct.");
+                }
+                throw new Error(`Failed to verify draft (Status: ${draftInfoResponse.status})`);
+            }
+
+            // Step 2: Try to fetch initial picks, but gracefully handle 404 for pre-drafts
+            const picksResponse = await fetch(`https://api.sleeper.app/v1/draft/${newDraftId}/picks`);
+            if (picksResponse.ok) {
+                const picks = await picksResponse.json();
+                const draftedPlayerIds = new Set(picks.map((pick: any) => parseInt(pick.player_id, 10)));
+                
+                setPlayers(currentPlayers => 
+                    currentPlayers.map(player => ({
+                        ...player,
+                        isDrafted: player.isDrafted || draftedPlayerIds.has(player.id)
+                    }))
+                );
+                setLastSyncTime(new Date());
+            } else if (picksResponse.status !== 404) {
+                // It's an error, but not a "not found" which we accept for pre-drafts
+                throw new Error(`Failed to fetch draft data (Status: ${picksResponse.status})`);
+            }
+            // If it was a 404, we just continue without error, assuming the draft hasn't started.
+
+            // Step 3: If validation and initial sync passed, connect WebSocket
             setDraftId(newDraftId);
             
             const newWs = new WebSocket('wss://ws.sleeper.app');
             ws.current = newWs;
             
             newWs.onopen = () => {
-                console.log("WebSocket connection opened. Subscribing to draft channel...");
                 const subscribeMsg = JSON.stringify({
                     type: "subscribe",
                     payload: { channel: `draft:${newDraftId}` }
@@ -208,7 +159,6 @@ const App: React.FC = () => {
                 const data = JSON.parse(event.data);
                 
                 if (data.type === 'welcome') {
-                    console.log("Subscription successful. Live sync is active.");
                     setSyncStatus('active');
                     setSyncError(null);
                     return;
@@ -229,108 +179,70 @@ const App: React.FC = () => {
                 }
             };
 
-            newWs.onerror = (err) => {
-                if (newWs !== ws.current) return;
-                console.error("WebSocket Error:", err);
-            };
-
             newWs.onclose = (event: CloseEvent) => {
-                 if (newWs !== ws.current) return;
+                 if (newWs !== ws.current || syncStatusRef.current === 'idle') return;
                  
-                 if (syncStatusRef.current === 'idle') {
-                     return;
-                 }
-
-                 console.log(`WebSocket connection closed. Code: ${event.code}, Reason: '${event.reason}'`);
-
-                 let errorMessage: string;
-
-                 if (syncStatusRef.current === 'syncing') {
-                    errorMessage = 'Connection failed. Please check the draft URL and your network connection.';
-                 } else {
-                    errorMessage = `Live connection lost. Please sync again to receive real-time updates. (Code: ${event.code})`;
-                 }
+                 const errorMessage = syncStatusRef.current === 'syncing'
+                    ? 'Connection failed. Please check the draft URL and your network.'
+                    : `Live connection lost (Code: ${event.code}). Please reconnect.`;
 
                  setSyncError(errorMessage);
                  setSyncStatus('error');
             };
 
-        } catch (e) {
+        } catch (e: any) {
+            console.error("Error starting sync:", e);
+            setSyncError(e.message || "An unknown error occurred during sync setup.");
             setSyncStatus('error');
             cleanupWebSocket();
         }
-    }, [fetchDraftPicks, cleanupWebSocket]);
+    }, [cleanupWebSocket]);
     
-    const handleRefreshPlayers = useCallback(() => {
-        if (window.confirm('Are you sure you want to refresh the player database? This will update player info and add/remove players based on the latest Sleeper data. Your custom ranks, tags, and drafted players will be preserved.')) {
-            fetchPlayers();
-        }
-    }, [fetchPlayers]);
-
     const handleTogglePauseSync = () => {
         setSyncStatus(prev => (prev === 'active' ? 'paused' : 'active'));
     };
     
-    const handleForceRefresh = useCallback(() => {
-        if (draftId) {
-            fetchDraftPicks(draftId);
+    const handleForceRefresh = useCallback(async () => {
+        if (!draftId) return;
+
+        try {
+            const picksResponse = await fetch(`https://api.sleeper.app/v1/draft/${draftId}/picks`);
+            if (picksResponse.ok) {
+                const picks = await picksResponse.json();
+                const draftedPlayerIds = new Set(picks.map((pick: any) => parseInt(pick.player_id, 10)));
+                
+                setPlayers(currentPlayers => 
+                    currentPlayers.map(player => ({
+                        ...player,
+                        isDrafted: player.isDrafted || draftedPlayerIds.has(player.id)
+                    }))
+                );
+                setLastSyncTime(new Date());
+                alert('Draft picks refreshed successfully!');
+            } else {
+                throw new Error(`Failed to refresh picks (Status: ${picksResponse.status})`);
+            }
+        } catch (e: any) {
+            console.error("Error during force refresh:", e);
+            alert(`Error refreshing picks: ${e.message}`);
         }
-    }, [draftId, fetchDraftPicks]);
+    }, [draftId]);
 
     const handleRemoveSync = useCallback(() => {
-        setSyncStatus('idle');
-        cleanupWebSocket();
-        setDraftId(null);
-        setLastSyncTime(null);
-        setSyncError(null);
-        
-        setPlayers(currentPlayers => 
-            currentPlayers.map(player => ({
-                ...player,
-                isDrafted: false
-            }))
-        );
-    }, [cleanupWebSocket]);
-    
-    const handleSaveWithName = (name: string) => {
-        const newSave: SavedRanking = { name, players, date: new Date().toISOString() };
-        
-        setSavedRankings(prev => {
-            const existingIndex = prev.findIndex(s => s.name === name);
-            const newList = [...prev];
-            if (existingIndex > -1) {
-                newList[existingIndex] = newSave;
-            } else {
-                newList.push(newSave);
-            }
-            localStorage.setItem('fantasyRankings', JSON.stringify(newList));
-            return newList;
-        });
-        setIsSaveModalOpen(false);
-    };
-
-    const handleLoadFromStorage = (name: string) => {
-        const savedState = savedRankings.find(s => s.name === name);
-        if (savedState) {
-            setPlayers(savedState.players);
-            setIsLoadModalOpen(false);
-            setSearchTerm('');
-            setPositionFilter(Position.ALL);
-            alert(`Successfully loaded "${name}" rankings.`);
-        } else {
-            alert(`Error: Could not find rankings named "${name}".`);
+        if(window.confirm('This will disconnect from the live draft and reset the drafted status for all players on the board. Are you sure?')) {
+            cleanupWebSocket();
+            setDraftId(null);
+            setLastSyncTime(null);
+            setSyncError(null);
+            setSyncStatus('idle');
+            setPlayers(currentPlayers => 
+                currentPlayers.map(player => ({
+                    ...player,
+                    isDrafted: false
+                }))
+            );
         }
-    };
-    
-    const handleDeleteRanking = (name: string) => {
-       if (window.confirm(`Are you sure you want to delete the "${name}" rankings? This cannot be undone.`)) {
-            setSavedRankings(prev => {
-                const newList = prev.filter(s => s.name !== name);
-                localStorage.setItem('fantasyRankings', JSON.stringify(newList));
-                return newList;
-            });
-       }
-    };
+    }, [cleanupWebSocket]);
 
     const handleToggleTag = (tag: string) => {
         setVisibleTags(prev => {
@@ -353,18 +265,11 @@ const App: React.FC = () => {
     }, []);
 
     const handleToggleDraftStatus = useCallback((playerId: number) => {
-        setPlayers(currentPlayers => {
-            const updatedPlayers = currentPlayers.map(p =>
+        setPlayers(currentPlayers => 
+            currentPlayers.map(p =>
                 p.id === playerId ? { ...p, isDrafted: !p.isDrafted } : p
-            );
-            
-            const undrafted = updatedPlayers.filter(p => !p.isDrafted).sort((a, b) => a.rank - b.rank);
-            const drafted = updatedPlayers.filter(p => p.isDrafted);
-
-            const reRankedUndrafted = undrafted.map((p, index) => ({ ...p, rank: index + 1 }));
-
-            return [...reRankedUndrafted, ...drafted];
-        });
+            )
+        );
     }, []);
 
     const handleDragStart = (e: React.DragEvent, playerId: number) => {
@@ -400,16 +305,15 @@ const App: React.FC = () => {
                 return currentPlayers;
             }
 
-            let playersCopy = [...currentPlayers.filter(p => !p.isDrafted)];
+            const playersCopy = [...currentPlayers];
             const draggedIdx = playersCopy.findIndex(p => p.id === draggedPlayerId);
             const [removed] = playersCopy.splice(draggedIdx, 1);
             const targetIdx = playersCopy.findIndex(p => p.id === dragOverPlayerId);
             playersCopy.splice(targetIdx, 0, removed);
             
             const reRanked = playersCopy.map((p, index) => ({ ...p, rank: index + 1 }));
-            const draftedPlayers = currentPlayers.filter(p => p.isDrafted);
 
-            return [...reRanked, ...draftedPlayers];
+            return reRanked;
         });
         
         handleDragEnd(new Event('dragend') as any);
@@ -421,11 +325,7 @@ const App: React.FC = () => {
             (p.team && p.team.toLowerCase().includes(searchTerm.toLowerCase()))
         )
         .filter(p => positionFilter === Position.ALL || p.position === positionFilter)
-        .sort((a, b) => {
-            if (a.isDrafted && !b.isDrafted) return 1;
-            if (!a.isDrafted && b.isDrafted) return -1;
-            return a.rank - b.rank;
-        });
+        .sort((a, b) => a.rank - b.rank);
 
     const tagColumnWidths: { [key: string]: { class: string, pixels: number } } = {
         'Breakout': { class: 'w-28', pixels: 112 },
@@ -451,24 +351,6 @@ const App: React.FC = () => {
                 visibleTags={visibleTags}
                 onToggleTag={handleToggleTag}
                 onOpenSyncModal={() => setIsSyncModalOpen(true)}
-                onSaveRankings={() => setIsSaveModalOpen(true)}
-                onLoadRankings={() => setIsLoadModalOpen(true)}
-                onRefreshPlayers={handleRefreshPlayers}
-            />
-            
-            <SaveRankingsModal
-                isOpen={isSaveModalOpen}
-                onClose={() => setIsSaveModalOpen(false)}
-                onSave={handleSaveWithName}
-                existingNames={savedRankings.map(s => s.name)}
-            />
-
-            <LoadRankingsModal
-                isOpen={isLoadModalOpen}
-                onClose={() => setIsLoadModalOpen(false)}
-                savedRankings={savedRankings}
-                onLoad={handleLoadFromStorage}
-                onDelete={handleDeleteRanking}
             />
 
             <SyncModal
