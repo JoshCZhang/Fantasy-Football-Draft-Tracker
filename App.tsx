@@ -118,6 +118,17 @@ const App: React.FC = () => {
         }
     }, []);
 
+    const cleanupWebSocket = useCallback(() => {
+        if (ws.current) {
+            ws.current.onopen = null;
+            ws.current.onmessage = null;
+            ws.current.onerror = null;
+            ws.current.onclose = null;
+            ws.current.close();
+            ws.current = null;
+        }
+    }, []);
+
     useEffect(() => {
         fetchPlayers();
         try {
@@ -128,16 +139,12 @@ const App: React.FC = () => {
         } catch (error) {
             console.error("Failed to load rankings from local storage:", error);
         }
-    }, [fetchPlayers]);
-    
-    useEffect(() => {
-        return () => {
-            if (ws.current) {
-                ws.current.close();
-            }
-        };
-    }, []);
 
+        return () => {
+            cleanupWebSocket();
+        };
+    }, [fetchPlayers, cleanupWebSocket]);
+    
     const fetchDraftPicks = useCallback(async (currentDraftId: string) => {
         if (!currentDraftId) return;
         setSyncStatus('syncing');
@@ -175,19 +182,23 @@ const App: React.FC = () => {
             return;
         }
 
+        cleanupWebSocket();
+        setSyncStatus('syncing');
+        setSyncError(null);
+        
         try {
             await fetchDraftPicks(newDraftId);
             setDraftId(newDraftId);
-            if (ws.current) ws.current.close();
-
-            ws.current = new WebSocket('wss://ws.sleeper.app');
             
-            ws.current.onopen = () => {
+            const newWs = new WebSocket('wss://ws.sleeper.app');
+            ws.current = newWs;
+            
+            newWs.onopen = () => {
                 console.log("WebSocket connection opened.");
             };
 
-            ws.current.onmessage = (event) => {
-                if (syncStatusRef.current === 'paused') return;
+            newWs.onmessage = (event) => {
+                if (syncStatusRef.current === 'paused' || newWs !== ws.current) return;
                 
                 const data = JSON.parse(event.data);
                 
@@ -196,7 +207,7 @@ const App: React.FC = () => {
                         type: "subscribe",
                         payload: { channel: `draft:${newDraftId}` }
                     });
-                    ws.current?.send(subscribeMsg);
+                    newWs.send(subscribeMsg);
                     setSyncStatus('active');
                     setSyncError(null);
                     return;
@@ -217,20 +228,30 @@ const App: React.FC = () => {
                 }
             };
 
-            ws.current.onerror = (err) => {
+            newWs.onerror = (err) => {
+                if (newWs !== ws.current) return;
                 console.error("WebSocket Error:", err);
                 setSyncError('WebSocket connection error. Please try reconnecting.');
                 setSyncStatus('error');
+                cleanupWebSocket();
             };
 
-            ws.current.onclose = () => {
+            newWs.onclose = () => {
+                 if (newWs !== ws.current) return;
                  console.log("WebSocket connection closed.");
+                 if (syncStatusRef.current !== 'idle') {
+                    if (syncStatusRef.current !== 'error') {
+                        setSyncError('Connection lost. Please sync again.');
+                        setSyncStatus('error');
+                    }
+                 }
             };
 
         } catch (e) {
-            // Error is already set by fetchDraftPicks
+            setSyncStatus('error');
+            cleanupWebSocket();
         }
-    }, [fetchDraftPicks]);
+    }, [fetchDraftPicks, cleanupWebSocket]);
     
     const handleRefreshPlayers = useCallback(() => {
         if (window.confirm('Are you sure you want to refresh the player database? This will update player info and add/remove players based on the latest Sleeper data. Your custom ranks, tags, and drafted players will be preserved.')) {
@@ -249,12 +270,9 @@ const App: React.FC = () => {
     }, [draftId, fetchDraftPicks]);
 
     const handleRemoveSync = useCallback(() => {
-        if (ws.current) {
-            ws.current.close();
-            ws.current = null;
-        }
-        setDraftId(null);
         setSyncStatus('idle');
+        cleanupWebSocket();
+        setDraftId(null);
         setLastSyncTime(null);
         setSyncError(null);
         
@@ -264,7 +282,7 @@ const App: React.FC = () => {
                 isDrafted: false
             }))
         );
-    }, []);
+    }, [cleanupWebSocket]);
     
     const handleSaveWithName = (name: string) => {
         const newSave: SavedRanking = { name, players, date: new Date().toISOString() };

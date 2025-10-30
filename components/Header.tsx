@@ -110,7 +110,7 @@ const Header: React.FC<HeaderProps> = ({
                     </button>
                     <button
                         onClick={onRefreshPlayers}
-                        className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md flex items-center gap-2 hover:bg-gray-600 transition-colors"
+                        className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md flex items-center gap-2 hover:bg-gray-600 transition-colors sm:ml-auto"
                         title="Refresh player database from Sleeper"
                     >
                         <SyncIcon />
