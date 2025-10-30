@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Position } from '../types';
-import { SearchIcon, ChevronDownIcon, SyncDraftIcon } from './Icons';
+import { SearchIcon, ChevronDownIcon, SyncIcon } from './Icons';
 
 interface HeaderProps {
     searchTerm: string;
@@ -9,7 +9,7 @@ interface HeaderProps {
     setPositionFilter: (position: Position) => void;
     allTags: string[];
     visibleTags: string[];
-    onToggleTag: (tag: string) => void;
+    onToggleTagVisibility: (tag: string) => void;
     onOpenSyncModal: () => void;
 }
 
@@ -17,7 +17,7 @@ const positionFilters: Position[] = [Position.ALL, Position.QB, Position.RB, Pos
 
 const Header: React.FC<HeaderProps> = ({ 
     searchTerm, setSearchTerm, positionFilter, setPositionFilter, 
-    allTags, visibleTags, onToggleTag, onOpenSyncModal
+    allTags, visibleTags, onToggleTagVisibility, onOpenSyncModal
 }) => {
     const [isTagsDropdownOpen, setIsTagsDropdownOpen] = useState(false);
 
@@ -30,6 +30,7 @@ const Header: React.FC<HeaderProps> = ({
                 </div>
                 
                 <div className="flex-grow w-full md:w-auto flex flex-col sm:flex-row items-center gap-4">
+                    {/* Search Input */}
                     <div className="relative w-full sm:w-64">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
                            <SearchIcon />
@@ -43,6 +44,7 @@ const Header: React.FC<HeaderProps> = ({
                         />
                     </div>
                     
+                    {/* Position Filters */}
                     <div className="flex items-center gap-2">
                         {positionFilters.map(pos => (
                             <button
@@ -55,6 +57,7 @@ const Header: React.FC<HeaderProps> = ({
                         ))}
                     </div>
 
+                    {/* Tags Dropdown */}
                     <div className="relative">
                         <button
                             onClick={() => setIsTagsDropdownOpen(!isTagsDropdownOpen)}
@@ -70,7 +73,7 @@ const Header: React.FC<HeaderProps> = ({
                                         <input
                                             type="checkbox"
                                             checked={visibleTags.includes(tag)}
-                                            onChange={() => onToggleTag(tag)}
+                                            onChange={() => onToggleTagVisibility(tag)}
                                             className="h-4 w-4 rounded bg-gray-700 border-gray-500 text-indigo-600 focus:ring-indigo-500"
                                         />
                                         <span className="ml-3">{tag}</span>
@@ -80,12 +83,12 @@ const Header: React.FC<HeaderProps> = ({
                         )}
                     </div>
 
+                     {/* Sync Draft Button */}
                     <button
                         onClick={onOpenSyncModal}
-                        className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md flex items-center gap-2 hover:bg-gray-600 transition-colors"
-                        title="Sync with a live Sleeper draft"
+                        className="px-3 py-2 bg-indigo-600 text-white rounded-md flex items-center gap-2 hover:bg-indigo-500 transition-colors"
                     >
-                        <SyncDraftIcon />
+                        <SyncIcon />
                         <span className="text-sm font-semibold">Sync Draft</span>
                     </button>
                 </div>

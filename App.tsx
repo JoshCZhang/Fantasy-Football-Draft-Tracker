@@ -1,28 +1,32 @@
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Player, Position } from './types';
 import Header from './components/Header';
 import PlayerRow from './components/PlayerRow';
 import PlayerAnalysisModal from './components/PlayerAnalysisModal';
-import { getPlayerAnalysis } from './services/geminiService';
 import SyncModal from './components/SyncModal';
+import { getPlayerAnalysis } from './services/geminiService';
 
 const ALL_TAGS = ['My Man', 'Breakout', 'Bust', 'Sleeper', 'Value', 'Injury Prone', 'Rookie'];
 
+// Helper function to normalize the messy data from the Sleeper API
 const normalizeSleeperData = (data: any): Player[] => {
+    // We only care about standard fantasy positions
     const fantasyPositions = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'DST']);
     const playersArray = Object.values(data);
 
+    // Filter for active players with a valid fantasy position
     const filteredPlayers = playersArray.filter((p: any) => 
         p.status === 'Active' && p.position && fantasyPositions.has(p.position)
     );
 
+    // Sort by Sleeper's search rank to get a reasonable default order
     const sortedPlayers = filteredPlayers.sort((a: any, b: any) => {
         if (a.search_rank === null) return 1;
         if (b.search_rank === null) return -1;
         return a.search_rank - b.search_rank;
     });
 
+    // Map to our clean Player type
     return sortedPlayers.map((p: any, index: number): Player => ({
         id: parseInt(p.player_id, 10),
         rank: index + 1,
@@ -30,11 +34,10 @@ const normalizeSleeperData = (data: any): Player[] => {
         team: p.team,
         position: p.position as Position,
         isDrafted: false,
-        tags: p.years_exp === 0 ? ['Rookie'] : [],
+        tags: p.years_exp === 0 ? ['Rookie'] : [], // Automatically tag rookies
     }));
 };
 
-type SyncStatus = 'idle' | 'syncing' | 'active' | 'paused' | 'error';
 
 const App: React.FC = () => {
     const [players, setPlayers] = useState<Player[]>([]);
@@ -42,21 +45,26 @@ const App: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [positionFilter, setPositionFilter] = useState<Position>(Position.ALL);
-    const [visibleTags, setVisibleTags] = useState<string[]>([]);
+    const [visibleTags, setVisibleTags] = useState<string[]>(['My Man', 'Sleeper']);
     
+    // State for drag-and-drop functionality
     const [draggedPlayerId, setDraggedPlayerId] = useState<number | null>(null);
     const [dragOverPlayerId, setDragOverPlayerId] = useState<number | null>(null);
 
+    // State for the player analysis modal
     const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
     const [analysis, setAnalysis] = useState<string>('');
     const [isAnalysisLoading, setIsAnalysisLoading] = useState<boolean>(false);
-    
-    const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
-    const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
-    const [syncError, setSyncError] = useState<string | null>(null);
-    const webSocketRef = useRef<WebSocket | null>(null);
-    const intentionalCloseRef = useRef(false);
 
+    // State for the draft sync modal
+    const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+    const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'active' | 'error'>('idle');
+    const [draftId, setDraftId] = useState<string | null>(null);
+    const [syncError, setSyncError] = useState<string | null>(null);
+    const syncIntervalRef = useRef<number | null>(null);
+
+
+    // Fetch player data from the Sleeper API when the component mounts
     const fetchPlayers = useCallback(async () => {
         setIsLoading(true);
         setError(null);
@@ -66,8 +74,8 @@ const App: React.FC = () => {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             const data = await response.json();
-            const newPlayers = normalizeSleeperData(data);
-            setPlayers(newPlayers);
+            const normalized = normalizeSleeperData(data);
+            setPlayers(normalized);
         } catch (e) {
             console.error("Error fetching player data:", e);
             setError("Failed to fetch player data. Please try refreshing the page.");
@@ -80,6 +88,7 @@ const App: React.FC = () => {
         fetchPlayers();
     }, [fetchPlayers]);
     
+    // Handle opening the analysis modal and fetching data from Gemini
     const handleOpenAnalysisModal = useCallback(async (player: Player) => {
         setSelectedPlayer(player);
         setIsAnalysisLoading(true);
@@ -98,118 +107,17 @@ const App: React.FC = () => {
         setSelectedPlayer(null);
         setAnalysis('');
     };
-    
-    const handleRemoveSync = useCallback(() => {
-        if (webSocketRef.current) {
-            intentionalCloseRef.current = true;
-            webSocketRef.current.close();
-            webSocketRef.current = null;
-        }
-        setSyncStatus('idle');
-        setSyncError(null);
-    }, []);
 
-    const handleStartSync = useCallback(async (draftIdentifier: string) => {
-        if (webSocketRef.current) {
-            handleRemoveSync(); 
-        }
-        intentionalCloseRef.current = false;
-        setSyncStatus('syncing');
-        setSyncError(null);
-
-        const draftIdMatch = draftIdentifier.match(/\d{18,}/);
-        const draftId = draftIdMatch ? draftIdMatch[0] : draftIdentifier;
-
-        if (!/^\d+$/.test(draftId)) {
-            setSyncStatus('error');
-            setSyncError("Invalid Draft ID format. Please use a Sleeper URL or a numeric Draft ID.");
-            return;
-        }
-        
-        try {
-            const draftResponse = await fetch(`https://api.sleeper.app/v1/draft/${draftId}`);
-            if (!draftResponse.ok) {
-                 if (draftResponse.status === 404) {
-                    throw new Error("Draft not found. Please check if the URL or ID is correct.");
-                }
-                throw new Error(`Failed to verify draft (Status: ${draftResponse.status})`);
-            }
-
-            const picksResponse = await fetch(`https://api.sleeper.app/v1/draft/${draftId}/picks`);
-            let draftedPlayerIds = new Set<number>();
-            if (picksResponse.ok) {
-                const picks = await picksResponse.json();
-                picks.forEach((pick: any) => {
-                    if (pick.player_id) {
-                         draftedPlayerIds.add(parseInt(pick.player_id, 10));
-                    }
-                });
-            } else if (picksResponse.status !== 404) {
-                throw new Error(`Failed to fetch draft picks (Status: ${picksResponse.status})`);
-            }
-            
-            setPlayers(current => current.map(p => ({ ...p, isDrafted: draftedPlayerIds.has(p.id) })));
-
-            const ws = new WebSocket('wss://ws.sleeper.app');
-            webSocketRef.current = ws;
-
-            ws.onopen = () => {
-                ws.send(JSON.stringify({ type: 'subscribe', channel: 'draft', payload: { draft_id: draftId } }));
-            };
-
-            ws.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                if (data.type === 'draft' && data.data.type === 'pick') {
-                    const pickedPlayerId = parseInt(data.data.payload.player_id, 10);
-                    setPlayers(current =>
-                        current.map(p =>
-                            p.id === pickedPlayerId ? { ...p, isDrafted: true } : p
-                        )
-                    );
-                }
-                setSyncStatus(currentStatus => currentStatus !== 'active' ? 'active' : currentStatus);
-            };
-            
-            ws.onerror = (event) => {
-                console.error("WebSocket error:", event);
-            };
-
-            ws.onclose = () => {
-                if (!intentionalCloseRef.current) {
-                    setSyncStatus('error');
-                    setSyncError("Connection lost or failed to connect. Please check URL/ID and try again.");
-                }
-                webSocketRef.current = null;
-            };
-
-        } catch (err: any) {
-            setSyncStatus('error');
-            setSyncError(err.message || 'An unknown error occurred.');
-            if (webSocketRef.current) {
-                intentionalCloseRef.current = true;
-                webSocketRef.current.close();
-                webSocketRef.current = null;
-            }
-        }
-
-    }, [handleRemoveSync]);
-
-    useEffect(() => {
-        return () => {
-            if (webSocketRef.current) {
-                intentionalCloseRef.current = true;
-                webSocketRef.current.close();
-            }
-        };
-    }, []);
-
-    const handleToggleTag = (tag: string) => {
+    // Toggle which tag columns are visible in the table
+    const handleToggleTagVisibility = (tag: string) => {
         setVisibleTags(prev => {
             const newVisible = prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag];
+            // Maintain a consistent order for the columns
             return ALL_TAGS.filter(t => newVisible.includes(t));
         });
     };
 
+    // Add or remove a tag from a specific player
     const handleTogglePlayerTag = useCallback((playerId: number, tag: string) => {
         setPlayers(current =>
             current.map(p => {
@@ -223,25 +131,122 @@ const App: React.FC = () => {
         );
     }, []);
 
+    // Mark a player as drafted or not drafted, and re-calculate ranks
     const handleToggleDraftStatus = useCallback((playerId: number) => {
-        setPlayers(currentPlayers =>
-            currentPlayers.map(p =>
-                p.id === playerId ? { ...p, isDrafted: !p.isDrafted } : p
-            )
-        );
+        setPlayers(currentPlayers => {
+            const playerToToggle = currentPlayers.find(p => p.id === playerId);
+            if (!playerToToggle) return currentPlayers;
+            
+            const newDraftedStatus = !playerToToggle.isDrafted;
+
+            // Update the player's status
+            const updatedPlayers = currentPlayers.map(p =>
+                p.id === playerId ? { ...p, isDrafted: newDraftedStatus } : p
+            );
+
+            // Separate drafted and undrafted players to re-calculate ranks
+            const undrafted = updatedPlayers.filter(p => !p.isDrafted).sort((a,b) => a.rank - b.rank);
+            const drafted = updatedPlayers.filter(p => p.isDrafted);
+
+            // Re-rank only the undrafted players
+            const rerankedUndrafted = undrafted.map((p, index) => ({...p, rank: index + 1}));
+
+            return [...rerankedUndrafted, ...drafted];
+        });
     }, []);
 
+    // --- Draft Sync Handlers ---
+    const handleOpenSyncModal = () => setIsSyncModalOpen(true);
+    const handleCloseSyncModal = () => setIsSyncModalOpen(false);
+
+    const fetchDraftPicks = useCallback(async (id: string) => {
+        try {
+            const response = await fetch(`https://api.sleeper.app/v1/draft/${id}/picks`);
+            if (!response.ok) {
+                if (response.status === 404) {
+                    return []; // Draft has no picks yet, which is not an error
+                }
+                throw new Error(`Failed to fetch draft data (Status: ${response.status})`);
+            }
+            const picks = await response.json();
+            const draftedPlayerIds = new Set(picks.map((pick: any) => parseInt(pick.player_id, 10)));
+            
+            setPlayers(current => current.map(p => ({
+                ...p,
+                isDrafted: draftedPlayerIds.has(p.id) || p.isDrafted, // Keep manually drafted players as well
+            })));
+            
+        } catch (e: any) {
+            console.error("Error syncing draft:", e);
+            setSyncStatus('error');
+            setSyncError(e.message || "An unknown error occurred during sync.");
+            if (syncIntervalRef.current) {
+                clearInterval(syncIntervalRef.current);
+            }
+        }
+    }, []);
+
+    const handleStartSync = useCallback(async (url: string) => {
+        const match = url.match(/sleeper\.app\/draft\/nfl\/(\d+)|sleeper\.com\/draft\/nfl\/(\d+)/);
+        const id = match ? (match[1] || match[2]) : null;
+
+        if (!id) {
+            setSyncStatus('error');
+            setSyncError("Invalid Sleeper URL. Please check the format.");
+            return;
+        }
+
+        setSyncStatus('syncing');
+        setSyncError(null);
+        setDraftId(id);
+        
+        await fetchDraftPicks(id);
+        
+        setSyncStatus('active');
+
+        if (syncIntervalRef.current) {
+            clearInterval(syncIntervalRef.current);
+        }
+        syncIntervalRef.current = window.setInterval(() => {
+            fetchDraftPicks(id);
+        }, 5000); // Poll every 5 seconds
+        
+    }, [fetchDraftPicks]);
+
+    const handleStopSync = () => {
+        if (syncIntervalRef.current) {
+            clearInterval(syncIntervalRef.current);
+        }
+        setSyncStatus('idle');
+        setDraftId(null);
+        setSyncError(null);
+        syncIntervalRef.current = null;
+    };
+
+    useEffect(() => {
+        return () => { // Cleanup on unmount
+            if (syncIntervalRef.current) {
+                clearInterval(syncIntervalRef.current);
+            }
+        };
+    }, []);
+
+
+    // --- Drag and Drop Handlers ---
     const handleDragStart = (e: React.DragEvent, playerId: number) => {
         const player = players.find(p => p.id === playerId);
         if (player && !player.isDrafted) {
             setDraggedPlayerId(playerId);
             e.dataTransfer.effectAllowed = 'move';
+        } else {
+            e.preventDefault(); // Prevent dragging drafted players
         }
     };
 
     const handleDragEnter = (e: React.DragEvent, targetPlayerId: number) => {
         e.preventDefault();
         const targetPlayer = players.find(p => p.id === targetPlayerId);
+        // Only allow dropping on other undrafted players
         if (draggedPlayerId !== targetPlayerId && targetPlayer && !targetPlayer.isDrafted) {
             setDragOverPlayerId(targetPlayerId);
         }
@@ -253,48 +258,58 @@ const App: React.FC = () => {
         setDragOverPlayerId(null);
     };
 
+    // The core logic for re-ranking players after a drop
     const handleDrop = () => {
         if (draggedPlayerId === null || dragOverPlayerId === null || draggedPlayerId === dragOverPlayerId) return;
 
         setPlayers(currentPlayers => {
-            const sortedPlayers = [...currentPlayers].sort((a,b) => a.rank - b.rank);
-
-            const draggedPlayer = sortedPlayers.find(p => p.id === draggedPlayerId);
-            const targetPlayer = sortedPlayers.find(p => p.id === dragOverPlayerId);
-
-            if (!draggedPlayer || draggedPlayer.isDrafted || !targetPlayer || targetPlayer.isDrafted) {
-                return currentPlayers;
-            }
+            const undraftedPlayers = currentPlayers.filter(p => !p.isDrafted).sort((a,b) => a.rank - b.rank);
+            const draftedPlayers = currentPlayers.filter(p => p.isDrafted);
             
-            const draggedIdx = sortedPlayers.findIndex(p => p.id === draggedPlayerId);
-            const [removed] = sortedPlayers.splice(draggedIdx, 1);
-            
-            const targetIdx = sortedPlayers.findIndex(p => p.id === dragOverPlayerId);
-            sortedPlayers.splice(targetIdx, 0, removed);
-            
-            const reRankedPlayers = sortedPlayers.map((p, index) => ({ ...p, rank: index + 1 }));
+            const draggedPlayer = undraftedPlayers.find(p => p.id === draggedPlayerId);
+            if (!draggedPlayer) return currentPlayers; // Should not happen
 
-            return reRankedPlayers;
+            // Remove the dragged player from their original position
+            const remainingPlayers = undraftedPlayers.filter(p => p.id !== draggedPlayerId);
+            
+            // Find the new insert position
+            const targetIdx = remainingPlayers.findIndex(p => p.id === dragOverPlayerId);
+            
+            // Insert the dragged player at the new position
+            remainingPlayers.splice(targetIdx, 0, draggedPlayer);
+            
+            // Re-calculate ranks for all undrafted players
+            const reRankedUndrafted = remainingPlayers.map((p, index) => ({ ...p, rank: index + 1 }));
+
+            return [...reRankedUndrafted, ...draftedPlayers];
         });
         
-        handleDragEnd(new Event('dragend') as any);
+        handleDragEnd(new Event('dragend') as any); // Reset drag state
     };
 
+    // Filter and sort players for display
     const displayPlayers = players
         .filter(p =>
             p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             (p.team && p.team.toLowerCase().includes(searchTerm.toLowerCase()))
         )
         .filter(p => positionFilter === Position.ALL || p.position === positionFilter)
-        .sort((a, b) => a.rank - b.rank);
+        // Sort by drafted status first, then by rank
+        .sort((a, b) => {
+            if (a.isDrafted && !b.isDrafted) return 1;
+            if (!a.isDrafted && b.isDrafted) return -1;
+            return a.rank - b.rank;
+        });
 
+    // --- Dynamic Table Width Calculation ---
+    // This allows the table to expand and shrink based on visible tag columns
     const tagColumnWidths: { [key: string]: { class: string, pixels: number } } = {
         'Breakout': { class: 'w-28', pixels: 112 },
         'Injury Prone': { class: 'w-36', pixels: 144 },
     };
     const defaultTagWidth = { class: 'w-20', pixels: 80 };
     
-    const baseTableWidth = 490;
+    const baseTableWidth = 490; // The width of the table without any tag columns
     const tagColumnsWidth = visibleTags.reduce((acc, tag) => {
         const widthInfo = tagColumnWidths[tag] || defaultTagWidth;
         return acc + widthInfo.pixels;
@@ -310,8 +325,8 @@ const App: React.FC = () => {
                 setPositionFilter={setPositionFilter}
                 allTags={ALL_TAGS}
                 visibleTags={visibleTags}
-                onToggleTag={handleToggleTag}
-                onOpenSyncModal={() => setIsSyncModalOpen(true)}
+                onToggleTagVisibility={handleToggleTagVisibility}
+                onOpenSyncModal={handleOpenSyncModal}
             />
             
             <PlayerAnalysisModal
@@ -323,21 +338,25 @@ const App: React.FC = () => {
 
             <SyncModal
                 isOpen={isSyncModalOpen}
-                onClose={() => setIsSyncModalOpen(false)}
+                onClose={handleCloseSyncModal}
                 onStartSync={handleStartSync}
-                onRemoveSync={handleRemoveSync}
-                status={syncStatus}
+                onStopSync={handleStopSync}
+                syncStatus={syncStatus}
+                draftId={draftId}
                 error={syncError}
+                onRefresh={() => draftId && fetchDraftPicks(draftId)}
             />
 
             <main className="container mx-auto p-4 flex-1 min-h-0">
                 <div 
                     className="bg-gray-800/50 rounded-lg border border-gray-700 shadow-lg h-full flex flex-col mx-auto overflow-hidden transition-all duration-300 ease-in-out"
+                    // The table width is set dynamically here
                     style={{ maxWidth: `${tableWidth}px` }}
                     onDrop={handleDrop}
                     onDragOver={(e) => e.preventDefault()}
                 >
                     <div className="flex-1 overflow-y-auto">
+                        {/* Sticky Table Header */}
                         <div className="sticky top-0 bg-gray-800 z-10">
                             <div className="flex items-center text-sm text-gray-400 font-bold uppercase border-b border-gray-700">
                                 <div className="w-10 flex-shrink-0 p-2 border-r border-gray-700"></div>
@@ -355,6 +374,7 @@ const App: React.FC = () => {
                             </div>
                         </div>
                         
+                        {/* Player List */}
                         {isLoading ? (
                             <p className="p-6 text-center text-gray-500">Loading latest player data...</p>
                         ) : error ? (

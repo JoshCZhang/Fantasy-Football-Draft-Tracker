@@ -3,8 +3,9 @@ import React from 'react';
 import { Player } from '../types';
 import { CloseIcon } from './Icons';
 
-// A simple markdown renderer
+// A simple markdown renderer to format Gemini's output
 const SimpleMarkdown: React.FC<{ text: string }> = ({ text }) => {
+    // This is a basic parser; a library like 'marked' or 'react-markdown' would be more robust
     const html = text
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
         .replace(/\*(.*?)\*/g, '<em>$1</em>')

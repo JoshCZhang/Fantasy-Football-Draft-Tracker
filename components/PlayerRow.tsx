@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Player } from '../types';
 import { 
@@ -26,6 +25,7 @@ interface PlayerRowProps {
     onDragEnd: (e: React.DragEvent) => void;
 }
 
+// Color mapping for player positions
 const positionColorMap: { [key: string]: string } = {
     QB: 'bg-red-500/20 text-red-300 border-red-500/30',
     RB: 'bg-green-500/20 text-green-300 border-green-500/30',
@@ -35,7 +35,8 @@ const positionColorMap: { [key: string]: string } = {
     DST: 'bg-gray-500/20 text-gray-300 border-gray-500/30',
 };
 
-const tagIconMap: { [key: string]: React.FC<{ className?: string }> } = {
+// Map tag names to their corresponding Icon components
+const tagIconMap: { [key: string]: React.FC } = {
     'Value': PriceTagIcon,
     'Bust': ExclamationIcon,
     'Injury Prone': BandAidIcon,
@@ -45,9 +46,10 @@ const tagIconMap: { [key: string]: React.FC<{ className?: string }> } = {
     'My Man': StarIcon,
 };
 
+// Custom widths for longer tag names to prevent awkward wrapping
 const tagColumnWidths: { [key: string]: string } = {
     'Breakout': 'w-28',
-    'Injury Prone': 'w-36', // Increased width
+    'Injury Prone': 'w-36',
 };
 const defaultTagWidth = 'w-20';
 
@@ -65,6 +67,13 @@ const PlayerRow: React.FC<PlayerRowProps> = ({
     onDragEnd
 }) => {
     const positionColor = positionColorMap[player.position];
+    
+    // Base classes for the row
+    const rowClasses = `
+        flex items-stretch border-b border-gray-800 transition-colors duration-200 relative
+        ${player.isDrafted ? 'bg-gray-900/70 text-gray-600' : 'hover:bg-gray-800/50'}
+        ${isDragging ? 'opacity-30' : 'opacity-100'}
+    `;
         
     return (
         <div 
@@ -73,10 +82,9 @@ const PlayerRow: React.FC<PlayerRowProps> = ({
             onDragEnter={(e) => onDragEnter(e, player.id)}
             onDragEnd={onDragEnd}
             onDragOver={(e) => e.preventDefault()} // Necessary to allow dropping
-            className={`flex items-stretch border-b border-gray-800 transition-colors duration-200 relative
-                ${player.isDrafted ? 'bg-red-950/40' : 'hover:bg-gray-800/50'}
-                ${isDragging ? 'opacity-30' : 'opacity-100'}`}
+            className={rowClasses}
         >
+            {/* Blue line indicator for drop target */}
             {isDragOver && <div className="absolute top-0 left-0 right-0 h-0.5 bg-blue-500 z-20" />}
             
             {/* Drag Handle */}
@@ -84,20 +92,22 @@ const PlayerRow: React.FC<PlayerRowProps> = ({
                 {!player.isDrafted && <DragHandleIcon />}
             </div>
 
-            {/* Player */}
+            {/* Player Info */}
             <div className="flex-grow flex items-center min-w-0 p-2 border-r border-gray-700 cursor-pointer" onClick={() => onOpenAnalysisModal(player)}>
-                <div className={`w-10 flex-shrink-0 text-center font-bold ${player.isDrafted ? 'text-red-400' : 'text-white'}`}>{player.rank}</div>
+                <div className={`w-10 flex-shrink-0 text-center font-bold ${player.isDrafted ? 'line-through text-gray-600' : 'text-white'}`}>{player.rank}</div>
                 <div className="ml-2 min-w-0">
-                    <p className={`font-semibold truncate ${player.isDrafted ? 'text-red-400' : 'text-white'}`}>{player.name}</p>
-                    <p className={`text-xs ${player.isDrafted ? 'text-red-600' : 'text-gray-400'}`}>{player.team || 'FA'}</p>
+                    <p className={`font-semibold truncate ${player.isDrafted ? 'line-through text-gray-500' : 'text-white'}`}>{player.name}</p>
+                    <p className="text-xs text-gray-400">{player.team || 'FA'}</p>
                 </div>
             </div>
+
             {/* Position */}
             <div className="w-16 flex-shrink-0 flex justify-center items-center p-2 border-r border-gray-700">
-                <div className={`text-xs font-bold py-1 px-2 rounded-full border ${player.isDrafted ? 'bg-red-900/50 text-red-400 border-red-700' : positionColor}`}>
+                <div className={`text-xs font-bold py-1 px-2 rounded-full border ${player.isDrafted ? 'bg-gray-700/50 border-gray-600' : positionColor}`}>
                     {player.position}
                 </div>
             </div>
+
             {/* Dynamic Tag Columns */}
             {visibleTags.map(tag => {
                 const IconComponent = tagIconMap[tag];
@@ -110,12 +120,13 @@ const PlayerRow: React.FC<PlayerRowProps> = ({
                             className="p-1 rounded-md transition-colors duration-200 w-full h-full flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-indigo-500/50 hover:bg-gray-700/50"
                             title={`Toggle ${tag} for ${player.name}`}
                         >
-                            {hasTag && IconComponent && <IconComponent className={player.isDrafted ? 'text-red-400' : ''} />}
+                            {hasTag && IconComponent && <IconComponent />}
                         </button>
                     </div>
                 )
             })}
-            {/* Drafted */}
+
+            {/* Drafted Button */}
             <div className="w-20 flex-shrink-0 flex justify-center items-center p-2">
                 <button 
                     onClick={() => onToggleDraftStatus(player.id)}

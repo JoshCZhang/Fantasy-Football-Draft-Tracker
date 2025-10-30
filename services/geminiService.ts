@@ -2,8 +2,8 @@
 import { GoogleGenAI } from "@google/genai";
 import { Player } from "../types";
 
-// FIX: Initialize the Gemini AI client once at the module level.
-// This prevents re-creating the client on every function call and allows for better state management.
+// Initialize the Gemini AI client once at the module level.
+// This prevents re-creating the client on every function call.
 const ai = process.env.API_KEY ? new GoogleGenAI({ apiKey: process.env.API_KEY }) : null;
 
 if (!ai) {
@@ -13,7 +13,7 @@ if (!ai) {
 
 
 export const getPlayerAnalysis = async (player: Player): Promise<string> => {
-    // FIX: Use the module-level 'ai' instance and return an error message if it's not initialized.
+    // Return an error message if the API key isn't configured.
     if (!ai) {
         return "Gemini API key not configured. Please set the API_KEY environment variable.";
     }
