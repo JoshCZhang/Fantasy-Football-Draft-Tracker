@@ -194,7 +194,12 @@ const App: React.FC = () => {
             ws.current = newWs;
             
             newWs.onopen = () => {
-                console.log("WebSocket connection opened.");
+                console.log("WebSocket connection opened. Subscribing to draft channel...");
+                const subscribeMsg = JSON.stringify({
+                    type: "subscribe",
+                    payload: { channel: `draft:${newDraftId}` }
+                });
+                newWs.send(subscribeMsg);
             };
 
             newWs.onmessage = (event) => {
@@ -203,11 +208,7 @@ const App: React.FC = () => {
                 const data = JSON.parse(event.data);
                 
                 if (data.type === 'welcome') {
-                    const subscribeMsg = JSON.stringify({
-                        type: "subscribe",
-                        payload: { channel: `draft:${newDraftId}` }
-                    });
-                    newWs.send(subscribeMsg);
+                    console.log("Subscription successful. Live sync is active.");
                     setSyncStatus('active');
                     setSyncError(null);
                     return;
@@ -231,20 +232,27 @@ const App: React.FC = () => {
             newWs.onerror = (err) => {
                 if (newWs !== ws.current) return;
                 console.error("WebSocket Error:", err);
-                setSyncError('WebSocket connection error. Please try reconnecting.');
-                setSyncStatus('error');
-                cleanupWebSocket();
             };
 
-            newWs.onclose = () => {
+            newWs.onclose = (event: CloseEvent) => {
                  if (newWs !== ws.current) return;
-                 console.log("WebSocket connection closed.");
-                 if (syncStatusRef.current !== 'idle') {
-                    if (syncStatusRef.current !== 'error') {
-                        setSyncError('Connection lost. Please sync again.');
-                        setSyncStatus('error');
-                    }
+                 
+                 if (syncStatusRef.current === 'idle') {
+                     return;
                  }
+
+                 console.log(`WebSocket connection closed. Code: ${event.code}, Reason: '${event.reason}'`);
+
+                 let errorMessage: string;
+
+                 if (syncStatusRef.current === 'syncing') {
+                    errorMessage = 'Connection failed. Please check the draft URL and your network connection.';
+                 } else {
+                    errorMessage = `Live connection lost. Please sync again to receive real-time updates. (Code: ${event.code})`;
+                 }
+
+                 setSyncError(errorMessage);
+                 setSyncStatus('error');
             };
 
         } catch (e) {
