@@ -1,8 +1,8 @@
-
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Player, Position } from './types';
 import Header from './components/Header';
 import PlayerRow from './components/PlayerRow';
+import SyncModal from './components/SyncModal';
 
 const ALL_TAGS = ['My Man', 'Breakout', 'Bust', 'Sleeper', 'Value', 'Injury Prone', 'Rookie'];
 
@@ -33,6 +33,7 @@ const normalizeSleeperData = (data: any): Player[] => {
     }));
 };
 
+type SyncStatus = 'idle' | 'syncing' | 'active' | 'paused' | 'error';
 
 const App: React.FC = () => {
     const [players, setPlayers] = useState<Player[]>([]);
@@ -45,6 +46,14 @@ const App: React.FC = () => {
     // Drag and Drop State
     const [draggedPlayerId, setDraggedPlayerId] = useState<number | null>(null);
     const [dragOverPlayerId, setDragOverPlayerId] = useState<number | null>(null);
+
+    // Live Sync State
+    const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+    const [draftId, setDraftId] = useState<string | null>(null);
+    const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
+    const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+    const [syncError, setSyncError] = useState<string | null>(null);
+    const syncIntervalRef = useRef<number | null>(null);
 
     useEffect(() => {
         const fetchPlayers = async () => {
@@ -66,7 +75,81 @@ const App: React.FC = () => {
 
         fetchPlayers();
     }, []);
+
+    const fetchDraftPicks = useCallback(async (currentDraftId: string) => {
+        if (!currentDraftId) return;
+
+        setSyncStatus('syncing');
+        setSyncError(null);
+
+        try {
+            const response = await fetch(`https://api.sleeper.app/v1/draft/${currentDraftId}/picks`);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch draft data. Sleeper API returned status: ${response.status}`);
+            }
+            const picks = await response.json();
+            const draftedPlayerIds = new Set(picks.map((pick: any) => parseInt(pick.player_id, 10)));
+            
+            setPlayers(currentPlayers => 
+                currentPlayers.map(player => ({
+                    ...player,
+                    isDrafted: player.isDrafted || draftedPlayerIds.has(player.id)
+                }))
+            );
+
+            setLastSyncTime(new Date());
+            setSyncStatus('active');
+
+        } catch (e: any) {
+            console.error("Error syncing draft:", e);
+            setSyncError(e.message || "An unknown error occurred during sync.");
+            setSyncStatus('error');
+        }
+    }, []);
+
+    useEffect(() => {
+        const stopPolling = () => {
+            if (syncIntervalRef.current) {
+                clearInterval(syncIntervalRef.current);
+                syncIntervalRef.current = null;
+            }
+        };
+
+        if (syncStatus === 'active' && draftId) {
+            stopPolling(); // Clear any existing interval before setting a new one
+            syncIntervalRef.current = window.setInterval(() => {
+                fetchDraftPicks(draftId);
+            }, 15000); // Poll every 15 seconds
+        } else {
+            stopPolling();
+        }
+        
+        return () => stopPolling(); // Cleanup on unmount
+    }, [syncStatus, draftId, fetchDraftPicks]);
+
+    const handleStartSync = useCallback(async (url: string) => {
+        const match = url.match(/sleeper\.com\/draft\/nfl\/(\d+)/);
+        const newDraftId = match ? match[1] : null;
+
+        if (newDraftId) {
+            setDraftId(newDraftId);
+            await fetchDraftPicks(newDraftId);
+        } else {
+            setSyncError("Invalid Sleeper draft URL. Please check the format.");
+            setSyncStatus('error');
+        }
+    }, [fetchDraftPicks]);
+
+    const handleTogglePauseSync = () => {
+        setSyncStatus(prev => (prev === 'active' ? 'paused' : 'active'));
+    };
     
+    const handleForceRefresh = useCallback(() => {
+        if (draftId) {
+            fetchDraftPicks(draftId);
+        }
+    }, [draftId, fetchDraftPicks]);
+
     const handleToggleTag = (tag: string) => {
         setVisibleTags(prevVisibleTags => {
             const newVisible = prevVisibleTags.includes(tag)
@@ -101,7 +184,6 @@ const App: React.FC = () => {
         );
     }, []);
 
-
     const handleDragStart = (e: React.DragEvent, playerId: number) => {
         const player = players.find(p => p.id === playerId);
         if (player && !player.isDrafted) {
@@ -133,7 +215,6 @@ const App: React.FC = () => {
             const draggedPlayer = currentPlayers.find(p => p.id === draggedPlayerId);
             const dropTarget = currentPlayers.find(p => p.id === dragOverPlayerId);
 
-            // Can only drag undrafted players and drop on undrafted players
             if (!draggedPlayer || draggedPlayer.isDrafted || !dropTarget || dropTarget.isDrafted) {
                 return currentPlayers;
             }
@@ -166,12 +247,7 @@ const App: React.FC = () => {
             )
             .filter(p => positionFilter === Position.ALL || p.position === positionFilter);
         
-        return filtered.sort((a, b) => {
-            if (a.isDrafted !== b.isDrafted) {
-                return a.isDrafted ? 1 : -1;
-            }
-            return a.rank - b.rank;
-        });
+        return filtered.sort((a, b) => a.rank - b.rank);
     }, [players, searchTerm, positionFilter]);
 
     const tagColumnWidths: { [key: string]: { class: string, pixels: number } } = {
@@ -198,6 +274,18 @@ const App: React.FC = () => {
                 allTags={ALL_TAGS}
                 visibleTags={visibleTags}
                 onToggleTag={handleToggleTag}
+                onOpenSyncModal={() => setIsSyncModalOpen(true)}
+            />
+            
+            <SyncModal
+                isOpen={isSyncModalOpen}
+                status={syncStatus}
+                error={syncError}
+                lastSyncTime={lastSyncTime}
+                onClose={() => setIsSyncModalOpen(false)}
+                onStartSync={handleStartSync}
+                onTogglePause={handleTogglePauseSync}
+                onForceRefresh={handleForceRefresh}
             />
 
             <main className="container mx-auto p-4 flex-1 min-h-0">
