@@ -25,8 +25,8 @@ const Header: React.FC<HeaderProps> = ({
         <header className="bg-gray-900/80 backdrop-blur-sm sticky top-0 z-40 p-4 border-b border-gray-700">
             <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                 <div className="text-center md:text-left">
-                    <h1 className="text-2xl font-bold text-white tracking-tight">Live Fantasy Draft Tracker</h1>
-                    <p className="text-sm text-gray-400">Easy Track, Easy Draft</p>
+                    <h1 className="text-2xl font-bold text-white tracking-tight">Fantasy Draft Assistant</h1>
+                    <p className="text-sm text-gray-400">Your AI-Powered Drafting Co-Pilot</p>
                 </div>
                 
                 <div className="flex-grow w-full md:w-auto flex flex-col sm:flex-row items-center gap-4">
@@ -82,11 +82,11 @@ const Header: React.FC<HeaderProps> = ({
                             </div>
                         )}
                     </div>
-
-                     {/* Sync Draft Button */}
+                    
+                    {/* Sync Draft Button */}
                     <button
                         onClick={onOpenSyncModal}
-                        className="px-3 py-2 bg-indigo-600 text-white rounded-md flex items-center gap-2 hover:bg-indigo-500 transition-colors"
+                        className="px-3 py-2 bg-indigo-600 text-white rounded-md flex items-center gap-2 hover:bg-indigo-700 transition-colors"
                     >
                         <SyncIcon />
                         <span className="text-sm font-semibold">Sync Draft</span>

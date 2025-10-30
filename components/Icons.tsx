@@ -13,7 +13,7 @@ export const CloseIcon = () => (
 );
 
 export const DraftedIcon = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
         <path strokeLinecap="round" strokeLinejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
 );
@@ -31,19 +31,13 @@ export const DragHandleIcon = () => (
 );
 
 export const SyncIcon = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M20 20v-5h-5" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M20 4L8.5 15.5M4 20l11.5-11.5" />
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 8.25H7.5a2.25 2.25 0 0 0-2.25 2.25v9a2.25 2.25 0 0 0 2.25 2.25h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25H15m0-3-3-3m0 0-3 3m3-3V15" />
     </svg>
 );
 
 
-interface IconWrapperProps {
-    children: React.ReactNode;
-    className?: string;
-}
-
-const IconWrapper: React.FC<IconWrapperProps> = ({ children, className = 'text-gray-300' }) => (
+const IconWrapper: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = 'text-gray-300' }) => (
     <div className={`h-6 w-6 ${className}`}>{children}</div>
 );
 
@@ -66,7 +60,7 @@ export const ExclamationIcon: React.FC<{ className?: string }> = ({ className })
 
 export const BandAidIcon: React.FC<{ className?: string }> = ({ className }) => (
     <IconWrapper className={className}>
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
             <g transform="rotate(45 12 12)">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 8.25h-10.5a3.75 3.75 0 00-3.75 3.75v0c0 2.071 1.679 3.75 3.75 3.75h10.5a3.75 3.75 0 003.75-3.75v0c0-2.071-1.679-3.75-3.75-3.75z" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 9.75h6v4.5H9v-4.5z" />
