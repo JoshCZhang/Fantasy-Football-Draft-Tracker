@@ -2,29 +2,22 @@
 import { GoogleGenAI } from "@google/genai";
 import { Player } from "../types";
 
-const API_KEY = process.env.API_KEY;
+let ai: GoogleGenAI | undefined;
 
-if (!API_KEY) {
-  // In a real app, you'd handle this more gracefully.
-  // For this context, we assume API_KEY is always available.
+// FIX: Initialize the Gemini AI client only if the API key is available.
+// This prevents the application from crashing if the key is not set and aligns with best practices.
+if (process.env.API_KEY) {
+  ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+} else {
+  // This warning is for the developer running the application.
   console.warn("API_KEY not found in environment variables. Gemini features will not work.");
-}
-
-// We check for API_KEY presence but create the instance on-demand
-// to ensure it's available in environments where it might be set later.
-let ai: GoogleGenAI | null = null;
-const getAi = () => {
-    if (!ai && API_KEY) {
-        ai = new GoogleGenAI({ apiKey: API_KEY });
-    }
-    return ai;
 }
 
 
 export const getPlayerAnalysis = async (player: Player): Promise<string> => {
-    const genAI = getAi();
-    if (!genAI) {
-        return Promise.resolve("Gemini API key not configured. Please set the API_KEY environment variable.");
+    // FIX: Use the module-level 'ai' instance and return an error message if it's not initialized.
+    if (!ai) {
+        return "Gemini API key not configured. Please set the API_KEY environment variable.";
     }
     
     const model = 'gemini-2.5-flash';
@@ -43,7 +36,7 @@ export const getPlayerAnalysis = async (player: Player): Promise<string> => {
     `;
 
     try {
-        const response = await genAI.models.generateContent({
+        const response = await ai.models.generateContent({
             model: model,
             contents: prompt,
         });

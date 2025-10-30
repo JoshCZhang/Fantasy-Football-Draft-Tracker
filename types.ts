@@ -13,9 +13,8 @@ export interface Player {
   id: number;
   rank: number;
   name: string;
-  team: string;
+  team: string | null; // Team can be null for free agents
   position: Position;
-  bye: number;
   isDrafted: boolean;
   tags?: string[];
 }

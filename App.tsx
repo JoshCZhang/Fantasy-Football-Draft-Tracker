@@ -5,68 +5,71 @@ import PlayerRow from './components/PlayerRow';
 
 const ALL_TAGS = ['My Man', 'Breakout', 'Bust', 'Sleeper', 'Value', 'Injury Prone', 'Rookie'];
 
-// This function translates the raw data from the Sleeper API into the Player[] format our app uses.
-const normalizeSleeperData = (sleeperData: { [key: string]: any }): Player[] => {
-    const relevantPositions = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
-    const playersArray = Object.values(sleeperData);
+const normalizeSleeperData = (data: any): Player[] => {
+    const fantasyPositions = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'DST']);
+    const playersArray = Object.values(data);
 
-    const filteredAndMapped = playersArray
-        .filter(p => p.active && relevantPositions.includes(p.position))
-        .map((p, index) => ({
-            id: parseInt(p.player_id, 10),
-            rank: index + 1, // Initial rank based on alphabetical order from API
-            name: p.full_name || `${p.first_name} ${p.last_name}`,
-            team: p.team || 'FA',
-            position: (p.position === 'DEF' ? 'DST' : p.position) as Position,
-            bye: 0, // Sleeper's main player endpoint doesn't include bye weeks.
-            isDrafted: false,
-            tags: [],
-        }));
+    const filteredPlayers = playersArray.filter((p: any) => 
+        p.status === 'Active' && p.position && fantasyPositions.has(p.position)
+    );
 
-    return filteredAndMapped;
+    const sortedPlayers = filteredPlayers.sort((a: any, b: any) => {
+        // Players with a null search_rank should be sorted to the bottom.
+        if (a.search_rank === null) return 1;
+        if (b.search_rank === null) return -1;
+        // Sort by the numerical search_rank.
+        return a.search_rank - b.search_rank;
+    });
+
+    return sortedPlayers.map((p: any, index: number): Player => ({
+        id: parseInt(p.player_id, 10),
+        rank: index + 1, // The rank is now based on the new, more accurate sort.
+        name: p.position === 'DST' ? `${p.first_name} ${p.last_name}` : `${p.first_name} ${p.last_name}`,
+        team: p.team,
+        position: p.position as Position,
+        isDrafted: false,
+        tags: p.years_exp === 0 ? ['Rookie'] : [],
+    }));
 };
+
 
 const App: React.FC = () => {
     const [players, setPlayers] = useState<Player[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(true);
+    const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [positionFilter, setPositionFilter] = useState<Position>(Position.ALL);
     const [isDrafting, setIsDrafting] = useState<boolean>(false);
     const [visibleTags, setVisibleTags] = useState<string[]>([]);
     
-    // Using a ref to store the initial fetched player list for resets
     const initialPlayersRef = useRef<Player[]>([]);
 
     // Drag and Drop State
     const [draggedPlayerId, setDraggedPlayerId] = useState<number | null>(null);
     const [dragOverPlayerId, setDragOverPlayerId] = useState<number | null>(null);
-    
-    // Fetch data directly from the Sleeper API when the app loads
+
     useEffect(() => {
         const fetchPlayers = async () => {
             try {
-                setIsLoading(true);
                 const response = await fetch('https://api.sleeper.app/v1/players/nfl');
                 if (!response.ok) {
-                    throw new Error('Failed to fetch players from Sleeper API');
+                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                const sleeperData = await response.json();
-                const normalizedPlayers = normalizeSleeperData(sleeperData);
-                
+                const data = await response.json();
+                const normalizedPlayers = normalizeSleeperData(data);
                 setPlayers(normalizedPlayers);
-                initialPlayersRef.current = JSON.parse(JSON.stringify(normalizedPlayers)); // Store a deep copy for resets
-            } catch (error) {
-                console.error("Error fetching player data:", error);
-                // In a real app, you might set an error state here to show in the UI
+                initialPlayersRef.current = JSON.parse(JSON.stringify(normalizedPlayers));
+            } catch (e) {
+                console.error("Error fetching player data:", e);
+                setError("Failed to fetch player data. Please try refreshing the page.");
             } finally {
                 setIsLoading(false);
             }
         };
+
         fetchPlayers();
     }, []);
-
-
-    // Draft Simulation Logic
+    
     useEffect(() => {
         if (!isDrafting) {
             return;
@@ -79,7 +82,7 @@ const App: React.FC = () => {
                     .sort((a, b) => a.rank - b.rank);
 
                 if (availablePlayers.length === 0) {
-                    setIsDrafting(false); // Stop if no players left
+                    setIsDrafting(false); 
                     return prevPlayers;
                 }
 
@@ -88,14 +91,13 @@ const App: React.FC = () => {
                     p.id === playerToDraft.id ? { ...p, isDrafted: true } : p
                 );
             });
-        }, 2000); // Draft a player every 2 seconds
+        }, 2000);
 
         return () => clearInterval(draftInterval);
     }, [isDrafting]);
 
     const handleResetDraft = useCallback(() => {
         setIsDrafting(false);
-        // Reset players from the stored initial list, not the static file
         setPlayers(JSON.parse(JSON.stringify(initialPlayersRef.current)));
         setSearchTerm('');
         setPositionFilter(Position.ALL);
@@ -108,7 +110,6 @@ const App: React.FC = () => {
                 ? prevVisibleTags.filter(t => t !== tag)
                 : [...prevVisibleTags, tag];
             
-            // Reorder based on ALL_TAGS to maintain a consistent column order
             return ALL_TAGS.filter(t => newVisible.includes(t));
         });
     };
@@ -129,7 +130,6 @@ const App: React.FC = () => {
         );
     }, []);
 
-    // Drag and Drop Handlers
     const handleDragStart = (e: React.DragEvent, playerId: number) => {
         setDraggedPlayerId(playerId);
         e.dataTransfer.effectAllowed = 'move';
@@ -166,7 +166,9 @@ const App: React.FC = () => {
                 ...filteredPlayers.slice(dropIndex)
             ];
 
-            return newPlayersList.map((p, index) => ({ ...p, rank: index + 1 }));
+            const rerankedPlayers = newPlayersList.map((p, index) => ({ ...p, rank: index + 1 }));
+            initialPlayersRef.current = JSON.parse(JSON.stringify(rerankedPlayers)); // Update ref on manual re-rank
+            return rerankedPlayers;
         });
         
         handleDragEnd(new Event('dragend') as any);
@@ -177,14 +179,13 @@ const App: React.FC = () => {
         const filtered = players
             .filter(p =>
                 p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                p.team.toLowerCase().includes(searchTerm.toLowerCase())
+                (p.team && p.team.toLowerCase().includes(searchTerm.toLowerCase()))
             )
             .filter(p => positionFilter === Position.ALL || p.position === positionFilter);
         
         return filtered.sort((a, b) => a.rank - b.rank);
     }, [players, searchTerm, positionFilter]);
 
-    // Dynamic table width calculation
     const tagColumnWidths: { [key: string]: { class: string, pixels: number } } = {
         'Breakout': { class: 'w-28', pixels: 112 },
         'Injury Prone': { class: 'w-36', pixels: 144 },
@@ -241,10 +242,9 @@ const App: React.FC = () => {
                         </div>
                         
                         {isLoading ? (
-                            <div className="flex flex-col justify-center items-center h-full text-gray-500">
-                                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-400"></div>
-                                <p className="mt-4 text-lg">Fetching latest player data...</p>
-                            </div>
+                            <p className="p-6 text-center text-gray-500">Loading latest player data...</p>
+                        ) : error ? (
+                            <p className="p-6 text-center text-red-500">{error}</p>
                         ) : displayPlayers.length > 0 ? (
                            displayPlayers.map(player => (
                                 <PlayerRow
@@ -261,7 +261,7 @@ const App: React.FC = () => {
                                 />
                             ))
                         ) : (
-                            <p className="p-6 text-center text-gray-500">No players found or failed to load.</p>
+                            <p className="p-6 text-center text-gray-500">No players found. Check your filters or try again.</p>
                         )}
                     </div>
                 </div>

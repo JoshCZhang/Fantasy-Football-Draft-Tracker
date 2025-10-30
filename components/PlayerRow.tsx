@@ -84,7 +84,7 @@ const PlayerRow: React.FC<PlayerRowProps> = ({
                 <div className="w-10 flex-shrink-0 text-center text-gray-400 font-bold">{player.rank}</div>
                 <div className="ml-2 min-w-0">
                     <p className={`font-semibold truncate ${player.isDrafted ? 'text-red-500' : 'text-white'}`}>{player.name}</p>
-                    <p className="text-xs text-gray-400">{player.team} &bull; Bye: {player.bye}</p>
+                    <p className="text-xs text-gray-400">{player.team || 'FA'}</p>
                 </div>
             </div>
             {/* Position */}
