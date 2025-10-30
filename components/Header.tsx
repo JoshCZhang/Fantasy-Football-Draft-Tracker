@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Position } from '../types';
-import { SearchIcon, ChevronDownIcon, SyncIcon, SaveIcon, LoadIcon } from './Icons';
+import { SearchIcon, ChevronDownIcon, SyncIcon, SaveIcon, LoadIcon, SyncDraftIcon } from './Icons';
 
 interface HeaderProps {
     searchTerm: string;
@@ -13,6 +13,7 @@ interface HeaderProps {
     onOpenSyncModal: () => void;
     onSaveRankings: () => void;
     onLoadRankings: () => void;
+    onRefreshPlayers: () => void;
 }
 
 const positionFilters: Position[] = [Position.ALL, Position.QB, Position.RB, Position.WR, Position.TE, Position.K, Position.DST];
@@ -20,7 +21,7 @@ const positionFilters: Position[] = [Position.ALL, Position.QB, Position.RB, Pos
 const Header: React.FC<HeaderProps> = ({ 
     searchTerm, setSearchTerm, positionFilter, setPositionFilter, 
     allTags, visibleTags, onToggleTag, onOpenSyncModal,
-    onSaveRankings, onLoadRankings
+    onSaveRankings, onLoadRankings, onRefreshPlayers
 }) => {
     const [isTagsDropdownOpen, setIsTagsDropdownOpen] = useState(false);
 
@@ -87,13 +88,13 @@ const Header: React.FC<HeaderProps> = ({
                         className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md flex items-center gap-2 hover:bg-gray-600 transition-colors"
                         title="Sync with a live Sleeper draft"
                     >
-                        <SyncIcon />
+                        <SyncDraftIcon />
                         <span className="text-sm font-semibold hidden sm:inline">Sync Draft</span>
                     </button>
                     <button
                         onClick={onSaveRankings}
                         className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md flex items-center gap-2 hover:bg-gray-600 transition-colors"
-                        title="Save current rankings and tags"
+                        title="Save current rankings to a file"
                     >
                         <SaveIcon />
                         <span className="text-sm font-semibold hidden sm:inline">Save</span>
@@ -101,10 +102,18 @@ const Header: React.FC<HeaderProps> = ({
                     <button
                         onClick={onLoadRankings}
                         className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md flex items-center gap-2 hover:bg-gray-600 transition-colors"
-                        title="Load saved rankings and tags"
+                        title="Load rankings from a file"
                     >
                         <LoadIcon />
                         <span className="text-sm font-semibold hidden sm:inline">Load</span>
+                    </button>
+                    <button
+                        onClick={onRefreshPlayers}
+                        className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md flex items-center gap-2 hover:bg-gray-600 transition-colors"
+                        title="Refresh player database from Sleeper"
+                    >
+                        <SyncIcon />
+                        <span className="text-sm font-semibold hidden sm:inline">Refresh Database</span>
                     </button>
                 </div>
             </div>
