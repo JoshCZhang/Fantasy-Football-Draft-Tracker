@@ -4,7 +4,8 @@ import { Player, Position } from './types';
 import Header from './components/Header';
 import PlayerRow from './components/PlayerRow';
 import SyncModal from './components/SyncModal';
-import LoadingOverlay from './components/LoadingOverlay';
+import SaveRankingsModal from './components/SaveRankingsModal';
+import LoadRankingsModal from './components/LoadRankingsModal';
 
 const ALL_TAGS = ['My Man', 'Breakout', 'Bust', 'Sleeper', 'Value', 'Injury Prone', 'Rookie'];
 
@@ -34,11 +35,11 @@ const normalizeSleeperData = (data: any): Player[] => {
 };
 
 type SyncStatus = 'idle' | 'syncing' | 'active' | 'paused' | 'error';
+type SavedRanking = { name: string; players: Player[]; date: string };
 
 const App: React.FC = () => {
     const [players, setPlayers] = useState<Player[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(true);
-    const [isUploading, setIsUploading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [positionFilter, setPositionFilter] = useState<Position>(Position.ALL);
@@ -52,14 +53,16 @@ const App: React.FC = () => {
     const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
     const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
     const [syncError, setSyncError] = useState<string | null>(null);
+
+    const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+    const [isLoadModalOpen, setIsLoadModalOpen] = useState(false);
+    const [savedRankings, setSavedRankings] = useState<SavedRanking[]>([]);
     
     const ws = useRef<WebSocket | null>(null);
     const syncStatusRef = useRef(syncStatus);
     useEffect(() => {
         syncStatusRef.current = syncStatus;
     }, [syncStatus]);
-
-    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const fetchPlayers = useCallback(async () => {
         setIsLoading(true);
@@ -98,8 +101,13 @@ const App: React.FC = () => {
                 const brandNewPlayers = newPlayers.filter(p => !currentPlayerIds.has(p.id));
                 
                 const combinedList = [...updatedPlayers, ...brandNewPlayers];
+                
+                const undrafted = combinedList.filter(p => !p.isDrafted).sort((a,b) => a.rank - b.rank);
+                const drafted = combinedList.filter(p => p.isDrafted);
+                
+                const reRankedUndrafted = undrafted.map((p, index) => ({...p, rank: index + 1}));
 
-                return combinedList.map((p, index) => ({ ...p, rank: index + 1 }));
+                return [...reRankedUndrafted, ...drafted];
             });
 
         } catch (e) {
@@ -112,6 +120,14 @@ const App: React.FC = () => {
 
     useEffect(() => {
         fetchPlayers();
+        try {
+            const storedRankings = localStorage.getItem('fantasyRankings');
+            if (storedRankings) {
+                setSavedRankings(JSON.parse(storedRankings));
+            }
+        } catch (error) {
+            console.error("Failed to load rankings from local storage:", error);
+        }
     }, [fetchPlayers]);
     
     useEffect(() => {
@@ -145,7 +161,7 @@ const App: React.FC = () => {
             console.error("Error syncing draft:", e);
             setSyncError(e.message || "An unknown error occurred during sync.");
             setSyncStatus('error');
-            throw e; // re-throw to be caught in handleStartSync
+            throw e;
         }
     }, []);
 
@@ -165,21 +181,27 @@ const App: React.FC = () => {
             if (ws.current) ws.current.close();
 
             ws.current = new WebSocket('wss://ws.sleeper.app');
-
+            
             ws.current.onopen = () => {
-                const subscribeMsg = JSON.stringify({
-                    type: "subscribe",
-                    payload: { channel: `draft:${newDraftId}` }
-                });
-                ws.current?.send(subscribeMsg);
-                setSyncStatus('active');
-                setSyncError(null);
+                console.log("WebSocket connection opened.");
             };
 
             ws.current.onmessage = (event) => {
-                if (syncStatusRef.current !== 'active') return;
+                if (syncStatusRef.current === 'paused') return;
                 
                 const data = JSON.parse(event.data);
+                
+                if (data.type === 'welcome') {
+                    const subscribeMsg = JSON.stringify({
+                        type: "subscribe",
+                        payload: { channel: `draft:${newDraftId}` }
+                    });
+                    ws.current?.send(subscribeMsg);
+                    setSyncStatus('active');
+                    setSyncError(null);
+                    return;
+                }
+
                 if (data.type === 'draft_pick' && data.payload) {
                     const pickedPlayerId = parseInt(data.payload.player_id, 10);
                     if (pickedPlayerId) {
@@ -195,10 +217,16 @@ const App: React.FC = () => {
                 }
             };
 
-            ws.current.onerror = () => {
+            ws.current.onerror = (err) => {
+                console.error("WebSocket Error:", err);
                 setSyncError('WebSocket connection error. Please try reconnecting.');
                 setSyncStatus('error');
             };
+
+            ws.current.onclose = () => {
+                 console.log("WebSocket connection closed.");
+            };
+
         } catch (e) {
             // Error is already set by fetchDraftPicks
         }
@@ -238,64 +266,45 @@ const App: React.FC = () => {
         );
     }, []);
     
-    const handleSaveToFile = useCallback(() => {
-        try {
-            const dataToSave = JSON.stringify(players, null, 2);
-            const blob = new Blob([dataToSave], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            const timestamp = new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-');
-            link.download = `fantasy-rankings-${timestamp}.json`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-        } catch (error) {
-            console.error("Failed to save rankings to file:", error);
-            alert("An error occurred while trying to save your rankings.");
-        }
-    }, [players]);
-
-    const handleLoadFromFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        const input = event.target;
-        if (!file) return;
-        if (!window.confirm("Are you sure? This will overwrite your current rankings and mark all players as undrafted.")) {
-            input.value = '';
-            return;
-        }
-        setIsUploading(true);
-        try {
-            const text = await new Promise<string>((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = e => typeof e.target?.result === 'string' ? resolve(e.target.result) : reject(new Error("Failed to read file."));
-                reader.onerror = () => reject(new Error("Error reading file."));
-                reader.readAsText(file);
-            });
-            const loadedPlayers: Player[] = JSON.parse(text);
-            if (!Array.isArray(loadedPlayers) || (loadedPlayers.length > 0 && (loadedPlayers[0].id === undefined || loadedPlayers[0].name === undefined))) {
-                throw new Error("Invalid file format.");
+    const handleSaveWithName = (name: string) => {
+        const newSave: SavedRanking = { name, players, date: new Date().toISOString() };
+        
+        setSavedRankings(prev => {
+            const existingIndex = prev.findIndex(s => s.name === name);
+            const newList = [...prev];
+            if (existingIndex > -1) {
+                newList[existingIndex] = newSave;
+            } else {
+                newList.push(newSave);
             }
-            const newlyLoadedPlayers = loadedPlayers.map((player, index) => ({
-                ...player,
-                isDrafted: false,
-                rank: index + 1,
-            }));
-            setPlayers(newlyLoadedPlayers);
-            setSearchTerm('');
-            setPositionFilter(Position.ALL);
-            alert('Rankings loaded successfully!');
-        } catch (error: any) {
-            console.error("Failed to load or parse rankings file:", error);
-            alert(`Error loading file: ${error.message}`);
-        } finally {
-            setIsUploading(false);
-            input.value = '';
-        }
+            localStorage.setItem('fantasyRankings', JSON.stringify(newList));
+            return newList;
+        });
+        setIsSaveModalOpen(false);
     };
 
-    const triggerFileInput = () => fileInputRef.current?.click();
+    const handleLoadFromStorage = (name: string) => {
+        const savedState = savedRankings.find(s => s.name === name);
+        if (savedState) {
+            setPlayers(savedState.players);
+            setIsLoadModalOpen(false);
+            setSearchTerm('');
+            setPositionFilter(Position.ALL);
+            alert(`Successfully loaded "${name}" rankings.`);
+        } else {
+            alert(`Error: Could not find rankings named "${name}".`);
+        }
+    };
+    
+    const handleDeleteRanking = (name: string) => {
+       if (window.confirm(`Are you sure you want to delete the "${name}" rankings? This cannot be undone.`)) {
+            setSavedRankings(prev => {
+                const newList = prev.filter(s => s.name !== name);
+                localStorage.setItem('fantasyRankings', JSON.stringify(newList));
+                return newList;
+            });
+       }
+    };
 
     const handleToggleTag = (tag: string) => {
         setVisibleTags(prev => {
@@ -318,11 +327,18 @@ const App: React.FC = () => {
     }, []);
 
     const handleToggleDraftStatus = useCallback((playerId: number) => {
-        setPlayers(currentPlayers =>
-            currentPlayers.map(p =>
+        setPlayers(currentPlayers => {
+            const updatedPlayers = currentPlayers.map(p =>
                 p.id === playerId ? { ...p, isDrafted: !p.isDrafted } : p
-            )
-        );
+            );
+            
+            const undrafted = updatedPlayers.filter(p => !p.isDrafted).sort((a, b) => a.rank - b.rank);
+            const drafted = updatedPlayers.filter(p => p.isDrafted);
+
+            const reRankedUndrafted = undrafted.map((p, index) => ({ ...p, rank: index + 1 }));
+
+            return [...reRankedUndrafted, ...drafted];
+        });
     }, []);
 
     const handleDragStart = (e: React.DragEvent, playerId: number) => {
@@ -358,13 +374,16 @@ const App: React.FC = () => {
                 return currentPlayers;
             }
 
-            const playersCopy = [...currentPlayers];
+            let playersCopy = [...currentPlayers.filter(p => !p.isDrafted)];
             const draggedIdx = playersCopy.findIndex(p => p.id === draggedPlayerId);
             const [removed] = playersCopy.splice(draggedIdx, 1);
             const targetIdx = playersCopy.findIndex(p => p.id === dragOverPlayerId);
             playersCopy.splice(targetIdx, 0, removed);
+            
+            const reRanked = playersCopy.map((p, index) => ({ ...p, rank: index + 1 }));
+            const draftedPlayers = currentPlayers.filter(p => p.isDrafted);
 
-            return playersCopy.map((p, index) => ({ ...p, rank: index + 1 }));
+            return [...reRanked, ...draftedPlayers];
         });
         
         handleDragEnd(new Event('dragend') as any);
@@ -376,7 +395,11 @@ const App: React.FC = () => {
             (p.team && p.team.toLowerCase().includes(searchTerm.toLowerCase()))
         )
         .filter(p => positionFilter === Position.ALL || p.position === positionFilter)
-        .sort((a, b) => a.rank - b.rank);
+        .sort((a, b) => {
+            if (a.isDrafted && !b.isDrafted) return 1;
+            if (!a.isDrafted && b.isDrafted) return -1;
+            return a.rank - b.rank;
+        });
 
     const tagColumnWidths: { [key: string]: { class: string, pixels: number } } = {
         'Breakout': { class: 'w-28', pixels: 112 },
@@ -393,7 +416,6 @@ const App: React.FC = () => {
 
     return (
         <div className="h-screen bg-gray-900 text-gray-200 font-sans flex flex-col">
-            <LoadingOverlay isLoading={isUploading} text="Loading rankings..." />
             <Header
                 searchTerm={searchTerm}
                 setSearchTerm={setSearchTerm}
@@ -403,17 +425,24 @@ const App: React.FC = () => {
                 visibleTags={visibleTags}
                 onToggleTag={handleToggleTag}
                 onOpenSyncModal={() => setIsSyncModalOpen(true)}
-                onSaveRankings={handleSaveToFile}
-                onLoadRankings={triggerFileInput}
+                onSaveRankings={() => setIsSaveModalOpen(true)}
+                onLoadRankings={() => setIsLoadModalOpen(true)}
                 onRefreshPlayers={handleRefreshPlayers}
             />
             
-            <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleLoadFromFile}
-                className="hidden"
-                accept=".json,application/json"
+            <SaveRankingsModal
+                isOpen={isSaveModalOpen}
+                onClose={() => setIsSaveModalOpen(false)}
+                onSave={handleSaveWithName}
+                existingNames={savedRankings.map(s => s.name)}
+            />
+
+            <LoadRankingsModal
+                isOpen={isLoadModalOpen}
+                onClose={() => setIsLoadModalOpen(false)}
+                savedRankings={savedRankings}
+                onLoad={handleLoadFromStorage}
+                onDelete={handleDeleteRanking}
             />
 
             <SyncModal

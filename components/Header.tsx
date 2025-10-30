@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Position } from '../types';
 import { SearchIcon, ChevronDownIcon, SyncIcon, SaveIcon, LoadIcon, SyncDraftIcon } from './Icons';
@@ -94,7 +95,7 @@ const Header: React.FC<HeaderProps> = ({
                     <button
                         onClick={onSaveRankings}
                         className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md flex items-center gap-2 hover:bg-gray-600 transition-colors"
-                        title="Save current rankings to a file"
+                        title="Save current rankings"
                     >
                         <SaveIcon />
                         <span className="text-sm font-semibold hidden sm:inline">Save</span>
@@ -102,7 +103,7 @@ const Header: React.FC<HeaderProps> = ({
                     <button
                         onClick={onLoadRankings}
                         className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md flex items-center gap-2 hover:bg-gray-600 transition-colors"
-                        title="Load rankings from a file"
+                        title="Load rankings"
                     >
                         <LoadIcon />
                         <span className="text-sm font-semibold hidden sm:inline">Load</span>
