@@ -61,7 +61,12 @@ const App: React.FC = () => {
     const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'active' | 'error'>('idle');
     const [draftId, setDraftId] = useState<string | null>(null);
     const [syncError, setSyncError] = useState<string | null>(null);
-    const syncIntervalRef = useRef<number | null>(null);
+    const wsRef = useRef<WebSocket | null>(null);
+    const syncStatusRef = useRef(syncStatus);
+
+    useEffect(() => {
+        syncStatusRef.current = syncStatus;
+    }, [syncStatus]);
 
 
     // Fetch player data from the Sleeper API when the component mounts
@@ -144,74 +149,96 @@ const App: React.FC = () => {
     const handleOpenSyncModal = () => setIsSyncModalOpen(true);
     const handleCloseSyncModal = () => setIsSyncModalOpen(false);
 
-    const fetchDraftPicks = useCallback(async (id: string) => {
+    const handleStartSync = useCallback(async (url: string) => {
+        if (wsRef.current) {
+            wsRef.current.close();
+        }
+        setSyncStatus('syncing');
+        setSyncError(null);
+    
+        const match = url.match(/sleeper\.(?:app|com)\/draft\/nfl\/(\d+)|^\s*(\d+)\s*$/);
+        const id = match ? (match[1] || match[2]) : null;
+    
+        if (!id) {
+            setSyncStatus('error');
+            setSyncError("Invalid Sleeper URL or Draft ID. Please check the format.");
+            return;
+        }
+        setDraftId(id);
+    
         try {
-            const response = await fetch(`https://api.sleeper.app/v1/draft/${id}/picks`);
-            if (!response.ok) {
-                if (response.status === 404) {
-                    return []; // Draft has no picks yet, which is not an error
-                }
-                throw new Error(`Failed to fetch draft data (Status: ${response.status})`);
+            const picksResponse = await fetch(`https://api.sleeper.app/v1/draft/${id}/picks`);
+            if (!picksResponse.ok && picksResponse.status !== 404) {
+                throw new Error(`Failed to fetch draft data (Status: ${picksResponse.status})`);
             }
-            const picks = await response.json();
+            const picks = picksResponse.status === 404 ? [] : await picksResponse.json();
             const draftedPlayerIds = new Set(picks.map((pick: any) => parseInt(pick.player_id, 10)));
             
             setPlayers(current => current.map(p => ({
                 ...p,
-                isDrafted: draftedPlayerIds.has(p.id) || p.isDrafted, // Keep manually drafted players as well
+                isDrafted: draftedPlayerIds.has(p.id)
             })));
-            
+    
+            const ws = new WebSocket('wss://ws.sleeper.app');
+            wsRef.current = ws;
+    
+            ws.onopen = () => {
+                ws.send(JSON.stringify({ type: 'subscribe', topic: `draft:NFL:${id}` }));
+            };
+    
+            ws.onmessage = (event) => {
+                if (syncStatusRef.current !== 'active') {
+                    setSyncStatus('active');
+                }
+                const message = JSON.parse(event.data);
+                if (message.type === 'draft' && message.data) {
+                    const pickedPlayerId = parseInt(message.data.player_id, 10);
+                    if (pickedPlayerId) {
+                        setPlayers(current => current.map(p => 
+                            p.id === pickedPlayerId ? { ...p, isDrafted: true } : p
+                        ));
+                    }
+                }
+            };
+    
+            ws.onclose = () => {
+                if (syncStatusRef.current !== 'idle') {
+                    setSyncStatus('error');
+                    setSyncError('Connection lost. Please try reconnecting.');
+                }
+                wsRef.current = null;
+            };
+    
+            ws.onerror = () => {
+                setSyncStatus('error');
+                setSyncError('A connection error occurred.');
+                wsRef.current = null;
+            };
+    
         } catch (e: any) {
-            console.error("Error syncing draft:", e);
             setSyncStatus('error');
-            setSyncError(e.message || "An unknown error occurred during sync.");
-            if (syncIntervalRef.current) {
-                clearInterval(syncIntervalRef.current);
+            setSyncError(e.message || "Failed to start sync.");
+            if (wsRef.current) {
+                wsRef.current.close();
+                wsRef.current = null;
             }
         }
     }, []);
 
-    const handleStartSync = useCallback(async (url: string) => {
-        const match = url.match(/sleeper\.app\/draft\/nfl\/(\d+)|sleeper\.com\/draft\/nfl\/(\d+)/);
-        const id = match ? (match[1] || match[2]) : null;
-
-        if (!id) {
-            setSyncStatus('error');
-            setSyncError("Invalid Sleeper URL. Please check the format.");
-            return;
-        }
-
-        setSyncStatus('syncing');
-        setSyncError(null);
-        setDraftId(id);
-        
-        await fetchDraftPicks(id);
-        
-        setSyncStatus('active');
-
-        if (syncIntervalRef.current) {
-            clearInterval(syncIntervalRef.current);
-        }
-        syncIntervalRef.current = window.setInterval(() => {
-            fetchDraftPicks(id);
-        }, 5000); // Poll every 5 seconds
-        
-    }, [fetchDraftPicks]);
-
     const handleStopSync = () => {
-        if (syncIntervalRef.current) {
-            clearInterval(syncIntervalRef.current);
-        }
         setSyncStatus('idle');
+        if (wsRef.current) {
+            wsRef.current.close();
+            wsRef.current = null;
+        }
         setDraftId(null);
         setSyncError(null);
-        syncIntervalRef.current = null;
     };
 
     useEffect(() => {
         return () => { // Cleanup on unmount
-            if (syncIntervalRef.current) {
-                clearInterval(syncIntervalRef.current);
+            if (wsRef.current) {
+                wsRef.current.close();
             }
         };
     }, []);
@@ -325,7 +352,6 @@ const App: React.FC = () => {
                 syncStatus={syncStatus}
                 draftId={draftId}
                 error={syncError}
-                onRefresh={() => draftId && fetchDraftPicks(draftId)}
             />
 
             <main className="container mx-auto p-4 flex-1 min-h-0">

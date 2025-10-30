@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { CloseIcon, SyncIcon } from './Icons';
 
 interface SyncModalProps {
@@ -6,19 +7,30 @@ interface SyncModalProps {
     onClose: () => void;
     onStartSync: (url: string) => void;
     onStopSync: () => void;
-    onRefresh: () => void;
     syncStatus: 'idle' | 'syncing' | 'active' | 'error';
     draftId: string | null;
     error: string | null;
 }
 
-const SyncModal: React.FC<SyncModalProps> = ({ isOpen, onClose, onStartSync, onStopSync, onRefresh, syncStatus, draftId, error }) => {
+const SyncModal: React.FC<SyncModalProps> = ({ isOpen, onClose, onStartSync, onStopSync, syncStatus, draftId, error }) => {
     const [draftUrl, setDraftUrl] = useState('');
+    // Fix: Add local state to handle submission state to avoid impossible type comparisons
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    useEffect(() => {
+        // Fix: Reset submitting state if the sync status returns to idle or error
+        if (syncStatus === 'idle' || syncStatus === 'error') {
+            setIsSubmitting(false);
+        }
+    }, [syncStatus]);
+
 
     if (!isOpen) return null;
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+        // Fix: Set submitting state to true on form submission
+        setIsSubmitting(true);
         onStartSync(draftUrl);
     };
 
@@ -43,7 +55,7 @@ const SyncModal: React.FC<SyncModalProps> = ({ isOpen, onClose, onStartSync, onS
                         {syncStatus === 'idle' || syncStatus === 'error' ? (
                             <form onSubmit={handleSubmit}>
                                 <label htmlFor="draft-url" className="block text-sm font-medium text-gray-300 mb-2">
-                                    Sleeper Draft URL
+                                    Sleeper URL or Draft ID
                                 </label>
                                 <input
                                     id="draft-url"
@@ -57,14 +69,12 @@ const SyncModal: React.FC<SyncModalProps> = ({ isOpen, onClose, onStartSync, onS
                                 {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
                                 <button
                                     type="submit"
-                                    // FIX: The `syncStatus` can only be 'idle' or 'error' in this block, so it can't be 'syncing'.
-                                    // The button should be enabled. When clicked, the parent component's state change will
-                                    // replace this form with a loading spinner.
-                                    disabled={false}
+                                    // Fix: Use local submitting state for disabled attribute. This resolves the type error on line 59.
+                                    disabled={isSubmitting}
                                     className="mt-4 w-full bg-indigo-600 text-white font-semibold py-2 rounded-md hover:bg-indigo-500 transition-colors disabled:bg-indigo-800 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                 >
-                                    {/* FIX: The button text was also checking for a 'syncing' status which is not possible in this render path. The text should be 'Start Sync'. */}
-                                    {'Start Sync'}
+                                    {/* Fix: Use local submitting state for button text. This resolves the type error on line 62. */}
+                                    {isSubmitting ? 'Connecting...' : 'Start Sync'}
                                 </button>
                             </form>
                         ) : (
@@ -85,7 +95,6 @@ const SyncModal: React.FC<SyncModalProps> = ({ isOpen, onClose, onStartSync, onS
                                         <p className="text-lg text-white">Live sync is active!</p>
                                         <p className="text-sm text-gray-400">Draft ID: {draftId}</p>
                                         <div className="flex gap-4 mt-2">
-                                            <button onClick={onRefresh} className="px-4 py-2 text-sm bg-gray-600 text-white rounded-md hover:bg-gray-500 transition-colors">Refresh</button>
                                             <button onClick={onStopSync} className="px-4 py-2 text-sm bg-red-600 text-white rounded-md hover:bg-red-500 transition-colors">Remove Sync</button>
                                         </div>
                                     </div>
