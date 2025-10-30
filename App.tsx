@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { Player, Position } from './types';
 import Header from './components/Header';
 import PlayerRow from './components/PlayerRow';
@@ -299,15 +299,16 @@ const App: React.FC = () => {
         handleDragEnd(new Event('dragend') as any); // Reset drag state
     };
 
-    // Filter and sort players for display
-    const displayPlayers = players
-        .filter(p =>
-            p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (p.team && p.team.toLowerCase().includes(searchTerm.toLowerCase()))
-        )
-        .filter(p => positionFilter === Position.ALL || p.position === positionFilter)
-        // Sort only by rank
-        .sort((a, b) => a.rank - b.rank);
+    // Filter and sort players for display. Memoized for performance.
+    const displayPlayers = useMemo(() => {
+        return players
+            .filter(p =>
+                p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (p.team && p.team.toLowerCase().includes(searchTerm.toLowerCase()))
+            )
+            .filter(p => positionFilter === Position.ALL || p.position === positionFilter)
+            .sort((a, b) => a.rank - b.rank);
+    }, [players, searchTerm, positionFilter]);
 
     // --- Dynamic Table Width Calculation ---
     // This allows the table to expand and shrink based on visible tag columns
