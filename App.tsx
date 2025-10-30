@@ -55,6 +55,7 @@ const App: React.FC = () => {
     const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
     const [syncError, setSyncError] = useState<string | null>(null);
     const webSocketRef = useRef<WebSocket | null>(null);
+    const intentionalCloseRef = useRef(false);
 
     const fetchPlayers = useCallback(async () => {
         setIsLoading(true);
@@ -100,6 +101,7 @@ const App: React.FC = () => {
     
     const handleRemoveSync = useCallback(() => {
         if (webSocketRef.current) {
+            intentionalCloseRef.current = true;
             webSocketRef.current.close();
             webSocketRef.current = null;
         }
@@ -108,7 +110,10 @@ const App: React.FC = () => {
     }, []);
 
     const handleStartSync = useCallback(async (draftIdentifier: string) => {
-        handleRemoveSync(); // Ensure any existing connection is closed
+        if (webSocketRef.current) {
+            handleRemoveSync(); 
+        }
+        intentionalCloseRef.current = false;
         setSyncStatus('syncing');
         setSyncError(null);
 
@@ -122,7 +127,6 @@ const App: React.FC = () => {
         }
         
         try {
-            // 1. Validate Draft
             const draftResponse = await fetch(`https://api.sleeper.app/v1/draft/${draftId}`);
             if (!draftResponse.ok) {
                  if (draftResponse.status === 404) {
@@ -131,24 +135,21 @@ const App: React.FC = () => {
                 throw new Error(`Failed to verify draft (Status: ${draftResponse.status})`);
             }
 
-            // 2. Fetch existing picks
             const picksResponse = await fetch(`https://api.sleeper.app/v1/draft/${draftId}/picks`);
             let draftedPlayerIds = new Set<number>();
             if (picksResponse.ok) {
-                // FIX: Used the correct response variable `picksResponse` instead of the undefined `response`.
                 const picks = await picksResponse.json();
                 picks.forEach((pick: any) => {
                     if (pick.player_id) {
                          draftedPlayerIds.add(parseInt(pick.player_id, 10));
                     }
                 });
-            } else if (picksResponse.status !== 404) { // 404 is ok, means draft hasn't started
+            } else if (picksResponse.status !== 404) {
                 throw new Error(`Failed to fetch draft picks (Status: ${picksResponse.status})`);
             }
             
             setPlayers(current => current.map(p => ({ ...p, isDrafted: draftedPlayerIds.has(p.id) })));
 
-            // 3. Establish WebSocket connection
             const ws = new WebSocket('wss://ws.sleeper.app');
             webSocketRef.current = ws;
 
@@ -166,30 +167,37 @@ const App: React.FC = () => {
                         )
                     );
                 }
-                // The first message received confirms an active connection
-                if(syncStatus !== 'active') {
-                   setSyncStatus('active');
-                }
+                setSyncStatus(currentStatus => currentStatus !== 'active' ? 'active' : currentStatus);
             };
             
+            ws.onerror = (event) => {
+                console.error("WebSocket error:", event);
+            };
+
             ws.onclose = () => {
-                if (syncStatus !== 'idle') {
+                if (!intentionalCloseRef.current) {
                     setSyncStatus('error');
-                    setSyncError("Connection lost. Please try reconnecting.");
+                    setSyncError("Connection lost or failed to connect. Please check URL/ID and try again.");
                 }
+                webSocketRef.current = null;
             };
 
         } catch (err: any) {
             setSyncStatus('error');
             setSyncError(err.message || 'An unknown error occurred.');
+            if (webSocketRef.current) {
+                intentionalCloseRef.current = true;
+                webSocketRef.current.close();
+                webSocketRef.current = null;
+            }
         }
 
-    }, [handleRemoveSync, syncStatus]);
+    }, [handleRemoveSync]);
 
     useEffect(() => {
-        // Cleanup WebSocket on component unmount
         return () => {
             if (webSocketRef.current) {
+                intentionalCloseRef.current = true;
                 webSocketRef.current.close();
             }
         };
