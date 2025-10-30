@@ -169,6 +169,39 @@ const App: React.FC = () => {
         );
     }, []);
 
+    const handleSaveRankings = useCallback(() => {
+        try {
+            const rankingsToSave = JSON.stringify(players);
+            localStorage.setItem('fantasyDraftAssistantRankings', rankingsToSave);
+            alert('Your rankings have been saved successfully!');
+        } catch (error) {
+            console.error('Failed to save rankings:', error);
+            alert('There was an error saving your rankings. Please check the console.');
+        }
+    }, [players]);
+
+    const handleLoadRankings = useCallback(() => {
+        const savedRankings = localStorage.getItem('fantasyDraftAssistantRankings');
+        if (savedRankings) {
+            if (window.confirm('Are you sure you want to load your saved rankings? This will overwrite your current board.')) {
+                try {
+                    const loadedPlayers = JSON.parse(savedRankings);
+                    if (Array.isArray(loadedPlayers)) {
+                        setPlayers(loadedPlayers);
+                        alert('Your rankings have been loaded.');
+                    } else {
+                        throw new Error('Saved data is not in the correct format.');
+                    }
+                } catch (error) {
+                    console.error('Failed to load rankings:', error);
+                    alert('There was an error loading your rankings. The saved data might be corrupted.');
+                }
+            }
+        } else {
+            alert('No saved rankings found.');
+        }
+    }, []);
+
     const handleToggleTag = (tag: string) => {
         setVisibleTags(prevVisibleTags => {
             const newVisible = prevVisibleTags.includes(tag)
@@ -294,6 +327,8 @@ const App: React.FC = () => {
                 visibleTags={visibleTags}
                 onToggleTag={handleToggleTag}
                 onOpenSyncModal={() => setIsSyncModalOpen(true)}
+                onSaveRankings={handleSaveRankings}
+                onLoadRankings={handleLoadRankings}
             />
             
             <SyncModal

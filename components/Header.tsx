@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Position } from '../types';
-import { SearchIcon, ChevronDownIcon, SyncIcon } from './Icons';
+import { SearchIcon, ChevronDownIcon, SyncIcon, SaveIcon, LoadIcon } from './Icons';
 
 interface HeaderProps {
     searchTerm: string;
@@ -11,13 +11,16 @@ interface HeaderProps {
     visibleTags: string[];
     onToggleTag: (tag: string) => void;
     onOpenSyncModal: () => void;
+    onSaveRankings: () => void;
+    onLoadRankings: () => void;
 }
 
 const positionFilters: Position[] = [Position.ALL, Position.QB, Position.RB, Position.WR, Position.TE, Position.K, Position.DST];
 
 const Header: React.FC<HeaderProps> = ({ 
     searchTerm, setSearchTerm, positionFilter, setPositionFilter, 
-    allTags, visibleTags, onToggleTag, onOpenSyncModal
+    allTags, visibleTags, onToggleTag, onOpenSyncModal,
+    onSaveRankings, onLoadRankings
 }) => {
     const [isTagsDropdownOpen, setIsTagsDropdownOpen] = useState(false);
 
@@ -86,6 +89,22 @@ const Header: React.FC<HeaderProps> = ({
                     >
                         <SyncIcon />
                         <span className="text-sm font-semibold hidden sm:inline">Sync Draft</span>
+                    </button>
+                    <button
+                        onClick={onSaveRankings}
+                        className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md flex items-center gap-2 hover:bg-gray-600 transition-colors"
+                        title="Save current rankings and tags"
+                    >
+                        <SaveIcon />
+                        <span className="text-sm font-semibold hidden sm:inline">Save</span>
+                    </button>
+                    <button
+                        onClick={onLoadRankings}
+                        className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md flex items-center gap-2 hover:bg-gray-600 transition-colors"
+                        title="Load saved rankings and tags"
+                    >
+                        <LoadIcon />
+                        <span className="text-sm font-semibold hidden sm:inline">Load</span>
                     </button>
                 </div>
             </div>
