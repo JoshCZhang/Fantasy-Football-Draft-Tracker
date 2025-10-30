@@ -119,15 +119,15 @@ const SyncModal: React.FC<SyncModalProps> = ({ isOpen, status, error, lastSyncTi
                         {(status === 'idle' || status === 'error') && (
                             <form onSubmit={handleSubmit} className="space-y-4">
                                 <div>
-                                    <label htmlFor="draft-url" className="sr-only">Sleeper Draft URL</label>
+                                    <label htmlFor="draft-url" className="sr-only">Sleeper Draft URL or ID</label>
                                     <input
                                         id="draft-url"
                                         type="text"
                                         value={url}
                                         onChange={(e) => setUrl(e.target.value)}
-                                        placeholder="https://sleeper.com/draft/nfl/..."
+                                        placeholder="Sleeper URL or Draft ID"
                                         className="w-full bg-gray-900 border border-gray-600 rounded-md py-2 px-4 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                        aria-label="Sleeper draft URL"
+                                        aria-label="Sleeper Draft URL or ID"
                                     />
                                 </div>
                                 <button

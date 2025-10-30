@@ -96,12 +96,17 @@ const App: React.FC = () => {
         };
     }, [fetchPlayers, cleanupWebSocket]);
     
-    const handleStartSync = useCallback(async (url: string) => {
-        const match = url.match(/sleeper\.com\/draft\/nfl\/(\d+)/);
-        const newDraftId = match ? match[1] : null;
+    const handleStartSync = useCallback(async (urlOrId: string) => {
+        const extractDraftId = (input: string): string | null => {
+            const idRegex = /(\d{18,})/; 
+            const match = input.trim().match(idRegex);
+            return match ? match[0] : null;
+        };
+
+        const newDraftId = extractDraftId(urlOrId);
 
         if (!newDraftId) {
-            setSyncError("Invalid Sleeper draft URL. Please check the format.");
+            setSyncError("Invalid Sleeper URL or Draft ID. Please provide a valid URL or just the numeric ID.");
             setSyncStatus('error');
             return;
         }
@@ -109,12 +114,13 @@ const App: React.FC = () => {
         cleanupWebSocket();
         setSyncStatus('syncing');
         setSyncError(null);
+        setDraftId(newDraftId);
 
         try {
             const draftInfoResponse = await fetch(`https://api.sleeper.app/v1/draft/${newDraftId}`);
             if (!draftInfoResponse.ok) {
                 if (draftInfoResponse.status === 404) {
-                    throw new Error("Draft not found. Please check if the URL is correct.");
+                    throw new Error("Draft not found. Please check if the URL or ID is correct.");
                 }
                 throw new Error(`Failed to verify draft (Status: ${draftInfoResponse.status})`);
             }
@@ -130,7 +136,6 @@ const App: React.FC = () => {
                         isDrafted: draftedPlayerIds.has(player.id)
                     }))
                 );
-                setLastSyncTime(new Date());
             } else if (picksResponse.status === 404) {
                  setPlayers(currentPlayers => 
                     currentPlayers.map(player => ({
@@ -139,10 +144,9 @@ const App: React.FC = () => {
                     }))
                 );
             } else {
-                throw new Error(`Failed to fetch draft data (Status: ${picksResponse.status})`);
+                throw new Error(`Failed to fetch initial draft picks (Status: ${picksResponse.status})`);
             }
-
-            setDraftId(newDraftId);
+            setLastSyncTime(new Date());
             
             const newWs = new WebSocket('wss://ws.sleeper.app');
             ws.current = newWs;
@@ -185,7 +189,7 @@ const App: React.FC = () => {
                  
                  const errorMessage = syncStatusRef.current === 'syncing'
                     ? 'Connection failed. Please check the draft URL and your network.'
-                    : `Live connection lost (Code: ${event.code}). Please reconnect.`;
+                    : `Live connection lost (Code: ${event.code}). Please try reconnecting.`;
 
                  setSyncError(errorMessage);
                  setSyncStatus('error');
