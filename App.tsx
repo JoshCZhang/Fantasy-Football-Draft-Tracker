@@ -111,20 +111,11 @@ const App: React.FC = () => {
     }, []);
 
     const handleToggleDraftStatus = useCallback((playerId: number) => {
-        setPlayers(currentPlayers => {
-            const playersCopy = currentPlayers.map(p =>
+        setPlayers(currentPlayers =>
+            currentPlayers.map(p =>
                 p.id === playerId ? { ...p, isDrafted: !p.isDrafted } : p
-            );
-            
-            const undraftedPlayers = playersCopy
-                .filter(p => !p.isDrafted)
-                .sort((a, b) => a.rank - b.rank)
-                .map((p, index) => ({ ...p, rank: index + 1 }));
-                
-            const draftedPlayers = playersCopy.filter(p => p.isDrafted);
-            
-            return [...undraftedPlayers, ...draftedPlayers];
-        });
+            )
+        );
     }, []);
 
     const handleDragStart = (e: React.DragEvent, playerId: number) => {
@@ -153,24 +144,24 @@ const App: React.FC = () => {
         if (draggedPlayerId === null || dragOverPlayerId === null || draggedPlayerId === dragOverPlayerId) return;
 
         setPlayers(currentPlayers => {
-            const draggedPlayer = currentPlayers.find(p => p.id === draggedPlayerId);
-            const targetPlayer = currentPlayers.find(p => p.id === dragOverPlayerId);
+            const sortedPlayers = [...currentPlayers].sort((a,b) => a.rank - b.rank);
+
+            const draggedPlayer = sortedPlayers.find(p => p.id === draggedPlayerId);
+            const targetPlayer = sortedPlayers.find(p => p.id === dragOverPlayerId);
 
             if (!draggedPlayer || draggedPlayer.isDrafted || !targetPlayer || targetPlayer.isDrafted) {
                 return currentPlayers;
             }
-
-            const undraftedPlayers = currentPlayers.filter(p => !p.isDrafted);
-            const draftedPlayers = currentPlayers.filter(p => p.isDrafted);
             
-            const draggedIdx = undraftedPlayers.findIndex(p => p.id === draggedPlayerId);
-            const [removed] = undraftedPlayers.splice(draggedIdx, 1);
-            const targetIdx = undraftedPlayers.findIndex(p => p.id === dragOverPlayerId);
-            undraftedPlayers.splice(targetIdx, 0, removed);
+            const draggedIdx = sortedPlayers.findIndex(p => p.id === draggedPlayerId);
+            const [removed] = sortedPlayers.splice(draggedIdx, 1);
             
-            const reRankedUndrafted = undraftedPlayers.map((p, index) => ({ ...p, rank: index + 1 }));
+            const targetIdx = sortedPlayers.findIndex(p => p.id === dragOverPlayerId);
+            sortedPlayers.splice(targetIdx, 0, removed);
+            
+            const reRankedPlayers = sortedPlayers.map((p, index) => ({ ...p, rank: index + 1 }));
 
-            return [...reRankedUndrafted, ...draftedPlayers];
+            return reRankedPlayers;
         });
         
         handleDragEnd(new Event('dragend') as any);
@@ -182,12 +173,7 @@ const App: React.FC = () => {
             (p.team && p.team.toLowerCase().includes(searchTerm.toLowerCase()))
         )
         .filter(p => positionFilter === Position.ALL || p.position === positionFilter)
-        .sort((a, b) => {
-            if (a.isDrafted !== b.isDrafted) {
-                return a.isDrafted ? 1 : -1;
-            }
-            return a.rank - b.rank;
-        });
+        .sort((a, b) => a.rank - b.rank);
 
     const tagColumnWidths: { [key: string]: { class: string, pixels: number } } = {
         'Breakout': { class: 'w-28', pixels: 112 },
